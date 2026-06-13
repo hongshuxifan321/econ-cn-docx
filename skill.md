@@ -1,7 +1,7 @@
 ---
 name: econ-cn-docx
 description: 经管实证论文中文学术 Word 排版。Python DSL (Paper 类) 一行命令生成 .docx。封装 OMML 公式引擎（分式、根号、上下标、希腊字母）、中文弯引号修复、字体三属性设置、esttab RTF 三线表、参考文献格式。
-argument-hint: "<task> e.g. '生成 docx' or '排版论文' or '渲染 paper_content.json'"
+argument-hint: "<task> e.g. '生成 docx' / '排版论文' / '用 Paper DSL 写论文'"
 user-invocable: true
 ---
 

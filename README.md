@@ -1,154 +1,151 @@
 # econ-cn-docx
 
-用 python-docx 生成符合中文学术排版标准的经管实证论文 Word 文档。
-
-## 特性
-
-- **双路径**：纯 Python 代码构建 + docxtpl Jinja2 模板填充，按需选用
-- **三种预设风格**：毕业论文（GB/T 7713）、期刊投稿（《经济研究》格式）、工作论文（NBER 风格）
-- **Word 原生公式**：LaTeX 语法 → OMML 数学方程，支持上下标、希腊字母、求和积分
-- **自动引号修复**：ASCII 直引号 → 中文弯引号（U+201C/U+201D）
-- **三线表 + 回归表**：经管论文标准三线表，专用回归结果格式化
-- **多级编号**：1 → 1.1 → 1.1.1 自动递增，计数器按文档隔离
-- **封面 / 摘要 / 关键词 / 参考文献 / 页码**：开箱即用
-
-## 安装
+经管实证论文中文学术 Word 排版。Python DSL 写论文，一个 `render()` 出 docx。
 
 ```bash
-pip install -r requirements.txt
+pip install -e ~/.claude/skills/econ-cn-docx
 ```
-
-依赖：`python-docx`、`lxml`、`docxtpl`（可选，仅模板填充路径需要）。
 
 ## 快速开始
 
 ```python
-from docx import Document
-from references.toolkit import *
+from cn_docx import Paper
 
-doc = Document()
-setup_page(doc, style='thesis')  # 'thesis' | 'journal' | 'working_paper'
+p = Paper()
+p.title("论文标题")
+p.abstract("摘要内容……")
+p.keywords("关键词1；关键词2")
 
-add_title(doc, '论文标题')
-add_abstract_and_keywords(doc, '本文基于...', '关键词1；关键词2')
+p.h1("一、引言")
+p.para("正文段落。支持内联公式如 PM_{2.5} 自动渲染为 OMML。\n\n第二段。")
 
-add_numbered_heading(doc, '引言', 1)
-add_body(doc, '正文段落，支持 $\\beta_1$ 行内公式和 **粗体**。')
-add_display_equation(doc, r'y_{it} = \\beta_1 x_{it} + \\alpha_i + \\lambda_t')
+p.h2("（一）基准回归")
+p.equation(r"lnGDP_{ct} = \beta_{1} PM_{ct} + \beta_{2} PM_{ct} \times RWI_{c} + \alpha_{c} + \lambda_{t} + \varepsilon_{ct}")
 
-add_numbered_heading(doc, '基准回归', 2)
-add_regression_table(doc, [
-    {'name': '(1) FE', 'N': 5000, 'R2': 0.123,
-     'coef': {'x': 0.123, 'z': -0.045},
-     'se':   {'x': 0.023, 'z': 0.018},
-     'pvalues': {'x': 0.000, 'z': 0.031}},
-])
-add_page_number(doc)
-doc.save('output.docx')
+p.para("回归结果如下。")
+p.table("table_baseline_reg")
+
+p.image("fig_trend.png")
+p.h3("图一：PM2.5 趋势")
+
+p.h1("参考文献")
+p.ref("[1] Dingel, J. I., Neiman, B. How many jobs can be done at home?[J]. Journal of Public Economics, 2020, 189: 104235.")
+
+p.render("论文.docx", tables_dir="tables", figures_dir="figures")
 ```
 
-运行 `python demo.py` 查看完整示例。
+## API
 
-## 完整 API
-
-### 页面与风格
-
-| 函数 | 说明 |
+### 元数据
+| 方法 | 排版 |
 |------|------|
-| `setup_page(doc, style)` | 三种预设 + 自定义 dict |
-| `set_style(name)` | 运行时切换风格 |
-| `load_template(path)` | 从 Word 模板创建文档 |
+| `title(text)` | 18pt 黑体居中加粗 |
+| `abstract(text)` | "摘要："黑体 10.5pt 加粗 + 楷体正文 |
+| `keywords(text)` | "关键词："黑体 10.5pt 加粗 + 楷体正文 |
 
-### 标题与正文
-
-| 函数 | 排版 |
+### 标题
+| 方法 | 排版 |
 |------|------|
-| `add_title(doc, text)` | 18pt 黑体居中 |
-| `add_heading_1(doc, text)` | 风格决定字号对齐 |
-| `add_heading_2(doc, text)` | 风格决定字号对齐 |
-| `add_heading_3(doc, text)` | 10.5pt 黑体居中 |
-| `add_numbered_heading(doc, text, level)` | 自动编号 |
-| `reset_heading_counters(doc)` | 重置计数器 |
-| `add_body(doc, text, indent=True)` | 宋体两端对齐 |
-| `add_bullet(doc, text)` | 悬挂缩进 |
+| `h1(title, body="")` | 16pt 黑体居中加粗 |
+| `h2(title, body="")` | 14pt 黑体左对齐加粗 |
+| `h3(title)` | 10.5pt 黑体居中加粗（图/表标题） |
 
-### 摘要与参考文献
-
-| 函数 | 说明 |
+### 正文
+| 方法 | 排版 |
 |------|------|
-| `add_abstract(doc, body)` | 黑体标签 + 楷体正文 |
-| `add_keywords(doc, keywords)` | 黑体标签 + 楷体内容 |
-| `add_abstract_and_keywords(doc, body, kw)` | 两步合一 |
-| `add_reference(doc, text)` | 宋体 1.25 倍行距 |
+| `para(text)` | 12pt 宋体两端对齐，首行缩进 24pt，1.5 倍行距 |
+| `equation(latex)` | OMML 行间公式，居中 |
+| `note(text)` | 9pt 宋体斜体（表注） |
 
-### 封面与页码
-
-| 函数 | 说明 |
+### 浮动体
+| 方法 | 排版 |
 |------|------|
-| `add_cover_page(doc, title, school, author, ...)` | 毕业论文封面 |
-| `add_page_number(doc, show_total=True)` | "第 X 页 / 共 Y 页" |
+| `table(key)` | RTF → 三线表（顶线 12/底线 12/表头下线 8） |
+| `image(filename)` | 嵌入 PNG，居中，宽 10 cm |
 
-### 公式
-
-| 函数 | 说明 |
+### 参考文献
+| 方法 | 排版 |
 |------|------|
-| `add_display_equation(doc, latex_str)` | 居中 OMML 行间方程 |
-| `parse_inline_text(text, paragraph, size)` | 解析行内 `$...$` 和 `**粗体**` |
+| `ref(text)` | 10pt 宋体，1.25 倍行距 |
 
-### 表格
+### 渲染
+```python
+p.render("论文.docx",
+         tables_dir="tables", figures_dir="figures",
+         table_map={"key": "file.rtf"},  # TABLE key → RTF 文件名
+         margin_left=3.18, body_size=12, heading1_size=16,
+         # 全部参数可覆盖，默认值为毕业论文格式
+)
+```
 
-| 函数 | 说明 |
+## OMML 公式引擎
+
+| 语法 | 效果 |
 |------|------|
-| `add_three_line_table(doc, headers, rows)` | 三线表（顶线12/下线8/底线12） |
-| `add_regression_table(doc, models, ...)` | 回归结果专用（系数/标准误/星号/N/R²） |
-| `add_table_note(doc, text)` | 表注 |
+| `x_{sub}` / `x^{sup}` | 下标 / 上标 |
+| `x_{sub}^{sup}` | 同时上下标 |
+| `\frac{a}{b}` | 分式 |
+| `\sqrt{x}` / `\sqrt[n]{x}` | 平方根 / n 次方根 |
+| `\bar{x}` `\hat{x}` `\tilde{x}` `\dot{x}` | 组合变音符 |
+| `\alpha` `\beta` `\gamma` `\delta` … | 小写希腊字母 |
+| `\Gamma` `\Delta` `\Sigma` `\Phi` … | 大写希腊字母 |
+| `\times` `\cdot` `\pm` `\leq` `\geq` `\neq` | 运算符 |
+| `\partial` `\infty` `\nabla` `\forall` `\exists` | 数学符号 |
+| `\rightarrow` / `\to` / `\Rightarrow` | 箭头 |
+| `\text{GDP}` | 公式内文本 |
 
-### 图表
+## 行内格式
 
-| 函数 | 说明 |
-|------|------|
-| `add_figure(doc, image, caption, width)` | 图片嵌入 + 图题 |
-| `add_chart(doc, fig, caption, width)` | matplotlib 图表嵌入 |
+- `H1`/`H2`/`H3` 开头段落 → 加粗（假说陈述行）
+- `word_{subscript}` 模式自动检测 → 内联 OMML
 
-### 模板
+## 字体体系
 
-| 函数 | 说明 |
-|------|------|
-| `render_template(template, context, output)` | docxtpl 模板填充 |
+| 元素 | 中文字体 | 西文字体 |
+|------|---------|---------|
+| 正文 | 宋体 | Times New Roman |
+| 标题 | 黑体 | Times New Roman |
+| 摘要/关键词 | 楷体 | Times New Roman |
+| 表格 | 宋体 | Times New Roman |
 
-### 底层工具
+## 排版参数默认值
 
-| 函数 | 说明 |
-|------|------|
-| `set_cn_font(run, font_name, size, bold)` | 中文字体三属性设置 |
-| `fix_chinese_quotes(text)` | ASCII 直引号 → 中文弯引号 |
-| `insert_inline_omath(paragraph, latex_str)` | 插入行内 OMML 元素 |
+| 参数 | 默认值 |
+|------|--------|
+| 页边距（上/下/左/右） | 2.54 / 2.54 / 3.18 / 2.54 cm |
+| 正文字号 / 行距 | 12pt / 1.5× |
+| 首行缩进 | 24pt（≈两字符） |
+| 一级标题 | 16pt |
+| 二级标题 | 14pt |
+| 图表标题 | 10.5pt |
+| 参考文献 | 10pt / 1.25× |
 
-## 风格预设对照
+所有参数通过 `render()` kwargs 按需覆盖。期刊投稿示例：
+```python
+p.render("论文.docx", margin_left=2.54, body_size=10.5, body_indent=21,
+         heading1_size=14, heading2_size=12, ref_size=9)
+```
 
-| 参数 | `thesis` | `journal` | `working_paper` |
-|------|----------|-----------|-----------------|
-| 页边距 | 左 3.18, 其余 2.54 cm | 四边 2.54 cm | 四边 2.54 cm |
-| 正文字号 | 12pt | 10.5pt | 11pt |
-| 正文行距 | 1.5 | 1.5 | 1.5 |
-| 一级标题 | 16pt 居中 | 14pt 居中 | 14pt 左对齐 |
-| 二级标题 | 14pt 左对齐 | 12pt 左对齐 | 12pt 左对齐 |
-| 参考文献 | 10pt | 9pt | 10pt |
-| 表格 | 9pt | 8pt | 9pt |
+## 旧版兼容：JSON 入口
 
-## 设计依据
+```python
+from cn_docx import render
+render("paper_content.json", output="论文.docx")
+```
 
-- GB/T 7713.1-2006《学位论文编写规则》
-- GB/T 7714-2015《信息与文献 参考文献著录规则》
-- 《经济研究》《经济学（季刊）》投稿格式指南
-- thuthesis / SJTUThesis / ustcthesis 等 LaTeX 模板的排版惯例
-- ElegantPaper LaTeX 工作论文模板
+JSON 格式仍支持所有 `TABLE:key` / `IMAGE:file.png` / `EQUATION:...` / `REF:...` / `NOTE:...` 前缀。
+
+## 依赖
+
+- python-docx >= 1.0
+- lxml >= 4.9
 
 ## 局限
 
-- 不支持 `\frac`、`\sqrt`、矩阵等复杂 LaTeX 公式（可用 pandoc 批量转换或切换到 LaTeX 工作流）
-- `\ln`、`\log` 等函数名在 OMML 中显示为斜体而非直立
-- 无 TOC 目录自动生成、无图表交叉引用
+- 无页码 / 页眉 / 目录（需在 Word 中手动添加）
+- 无图表交叉引用、公式编号
+- RTF 仅解析 esttab/estout 输出
+- 弯引号修复为启发式，极少数嵌套引号可能误判
 
 ## 许可证
 
