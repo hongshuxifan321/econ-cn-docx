@@ -1,3 +1,2 @@
 python-docx>=1.0
 lxml>=4.9
-docxtpl>=0.18

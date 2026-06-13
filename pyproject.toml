@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cn-docx"
+version = "1.0.0"
+description = "经管实证论文中文学术 Word 排版"
+requires-python = ">=3.9"
+dependencies = [
+    "python-docx>=1.0",
+    "lxml>=4.9",
+]
+
+[tool.setuptools]
+py-modules = ["cn_docx", "paper"]
+packages = ["references"]
+
