@@ -595,13 +595,13 @@ _MATH_PATTERN = re.compile(
 
 
 def _add_body_paragraph(doc, text, size=Pt(12), indent=Pt(24),
-                        line_spacing=1.5):
+                        line_spacing=1.5, space_before=Pt(6), space_after=Pt(6)):
     """Body paragraph: justified, first-line indent, inline math detection."""
     p = doc.add_paragraph()
     p.paragraph_format.first_line_indent = indent
     p.paragraph_format.line_spacing = line_spacing
-    p.paragraph_format.space_before = Pt(0)
-    p.paragraph_format.space_after = Pt(0)
+    p.paragraph_format.space_before = space_before
+    p.paragraph_format.space_after = space_after
     p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
     parts = _MATH_PATTERN.split(text)
@@ -753,6 +753,7 @@ def render_from_dicts(sections, output="论文.docx", *,
             p.alignment = WD_ALIGN_PARAGRAPH.LEFT
             p.paragraph_format.space_before = Pt(6)
             p.paragraph_format.space_after = Pt(3)
+            p.paragraph_format.line_spacing = 1.2
             r = p.add_run(title)
             set_cn_font(r, "黑体", Pt(heading2_size), bold=True)
 
@@ -818,11 +819,25 @@ def render_from_dicts(sections, output="论文.docx", *,
         for para_text in body.split("\n\n"):
             para_text = para_text.strip()
             if not para_text:
+                # 空段落也添加
+                doc.add_paragraph()
                 continue
 
             if para_text.startswith("EQUATION:"):
                 eq = para_text.replace("EQUATION:", "").strip()
                 _add_display_equation(doc, eq)
+                continue
+
+            if para_text.startswith("NOINDENT:"):
+                text = para_text.replace("NOINDENT:", "").strip()
+                p = doc.add_paragraph()
+                p.paragraph_format.first_line_indent = Pt(0)
+                p.paragraph_format.line_spacing = body_line_spacing
+                p.paragraph_format.space_before = Pt(6)
+                p.paragraph_format.space_after = Pt(6)
+                p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                r = p.add_run(_fix_quotes(text))
+                set_cn_font(r, "宋体", Pt(body_size))
                 continue
 
             # H1/H2/H3 hypothesis line → bold

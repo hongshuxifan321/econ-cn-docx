@@ -71,6 +71,10 @@ class Paper:
         """Body paragraph (12pt 宋体 justified, first-line indent)。"""
         self.sections.append({"title": "", "body": text, "level": 0})
 
+    def para_no_indent(self, text: str) -> None:
+        """Body paragraph without first-line indent (顶格)。"""
+        self.sections.append({"title": "", "body": f"NOINDENT:{text}", "level": 0})
+
     def equation(self, latex: str) -> None:
         """Display equation (OMML, centred). Prefix EQUATION: added."""
         self.sections.append({"title": "", "body": f"EQUATION:{latex}", "level": 0})
