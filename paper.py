@@ -28,6 +28,7 @@ _EXPECTED_RENDER_KWARGS = {
     "body_size", "body_line_spacing", "body_indent",
     "heading1_size", "heading2_size", "heading3_size",
     "ref_size", "ref_line_spacing", "table_font_size",
+    "preset",
 }
 
 
@@ -105,8 +106,11 @@ class Paper:
         """Render accumulated sections to .docx.
 
            Accepts all render() kwargs (tables_dir, figures_dir, table_map,
-           margin_*, body_size, heading1_size, heading2_size, etc.).
+           margin_*, body_size, heading1_size, heading2_size, preset, etc.).
         """
+        unknown = set(kwargs) - _EXPECTED_RENDER_KWARGS
+        if unknown:
+            print(f"[cn_docx] WARNING: 未知参数被忽略: {sorted(unknown)}")
         render_kwargs = {k: v for k, v in kwargs.items()
                          if k in _EXPECTED_RENDER_KWARGS}
         # Merge output into kwargs — render_from_dicts takes output as positional arg2

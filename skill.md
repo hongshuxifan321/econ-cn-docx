@@ -70,8 +70,9 @@ p.render("论文.docx")
 
 | 方法 | 排版 |
 |------|------|
-| `table(key)` | 解析 RTF → 三线表（顶线 12/底线 12/表头下线 8，单位 1/8 pt） |
+| `table(key)` | 解析 RTF → 三线表（顶线 12/底线 12/表头下线 8，单位 1/8 pt；自动采用 RTF 中的列宽） |
 | `image(filename)` | 嵌入图片，居中，宽 10 cm |
+| `image("fig.png:14")` | 嵌入图片，居中，宽 14 cm（`文件名:宽度cm` 语法） |
 
 ### 参考文献
 
@@ -102,6 +103,7 @@ p.render(output="论文.docx",
 | `\frac{a}{b}` | 分式 |
 | `\sqrt{x}` | 平方根 |
 | `\sqrt[n]{x}` | n 次方根 |
+| `\sum_{i=1}^{n}`、`\prod`、`\int` | 求和/连乘/积分，上下限显示在符号正上/正下方（m:nary） |
 | `\bar{x}、\hat{x}、\tilde{x}、\dot{x}` | 组合变音符 |
 | `\alpha、\beta、\gamma、\delta` 等 | 小写希腊字母 |
 | `\Delta、\Sigma、\Phi` 等 | 大写希腊字母 |
@@ -139,11 +141,21 @@ p.render(output="论文.docx",
 
 所有排版参数通过 `render()` kwargs 覆盖。
 
-## 期刊投稿格式
+## 排版预设（preset）
+
+三套预设，`preset=` 一行切换；显式传入的参数覆盖预设值：
+
+| 预设 | 场景 | 差异 |
+|------|------|------|
+| `preset="thesis"`（默认） | 毕业论文 | 页边距 2.54/2.54/3.18/2.54，正文 12pt/1.5×，一级标题 16pt |
+| `preset="journal"` | 期刊投稿 | 左页边距 2.54，正文 10.5pt/缩进 21pt，一级标题 14pt，参考文献 9pt |
+| `preset="working"` | 工作论文 | 左页边距 2.54，正文 12pt/1.5×，一级标题 15pt，二级 13pt |
 
 ```python
-p.render("论文.docx", margin_left=2.54, body_size=10.5, body_indent=21,
-         heading1_size=14, heading2_size=12, ref_size=9)
+p.render("论文.docx", preset="journal")
+
+# 预设基础上覆盖个别参数
+p.render("论文.docx", preset="journal", body_size=11)
 ```
 
 ## 旧版兼容：JSON 入口（仍可用）

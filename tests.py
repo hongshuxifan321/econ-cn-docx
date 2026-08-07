@@ -115,6 +115,18 @@ class TestOMMLMathContent(unittest.TestCase):
         self.assertGreaterEqual(len(rads), 1)
         self.assertGreaterEqual(len(degs), 1)
 
+    def test_sum_nary(self):
+        omath = self._render('\\sum_{i=1}^{n} x_{i}')
+        narys = omath.findall(f'.//{{{MATH_NS}}}nary')
+        self.assertEqual(len(narys), 1)
+        chr_vals = [e.get(f'{{{MATH_NS}}}val') for e in omath.findall(f'.//{{{MATH_NS}}}chr')]
+        self.assertIn('∑', chr_vals)
+
+    def test_sum_without_limits_stays_plain(self):
+        omath = self._render('\\sum x')
+        narys = omath.findall(f'.//{{{MATH_NS}}}nary')
+        self.assertEqual(len(narys), 0)
+
 
 class TestDisplayEquation(unittest.TestCase):
     def test_inserts_omath(self):
@@ -132,13 +144,18 @@ class TestRTFParser(unittest.TestCase):
                                      'tests', 'tables', 'test_table.rtf')
 
     def test_parse_returns_headers_rows_notes_title(self):
-        headers, rows, notes, title = _parse_rtf_table(self.rtf_path)
+        headers, rows, notes, title, col_widths = _parse_rtf_table(self.rtf_path)
         self.assertIsNotNone(headers)
         # Title may be empty if RTF format doesn't match esttab conventions
 
     def test_parse_has_data_rows(self):
-        headers, rows, notes, title = _parse_rtf_table(self.rtf_path)
+        headers, rows, notes, title, col_widths = _parse_rtf_table(self.rtf_path)
         self.assertGreaterEqual(len(rows), 1)
+
+    def test_parse_col_widths(self):
+        headers, rows, notes, title, col_widths = _parse_rtf_table(self.rtf_path)
+        self.assertGreaterEqual(len(col_widths), 2)  # 至少两列有宽度
+        self.assertTrue(all(w > 0 for w in col_widths))
 
 
 class TestBodyParagraph(unittest.TestCase):
@@ -199,6 +216,27 @@ class TestRenderFromDicts(unittest.TestCase):
             self.assertTrue(os.path.exists(out))
         finally:
             os.unlink(out)
+
+    def test_preset_journal(self):
+        sections = [{'title': '一、引言', 'body': '正文。', 'level': 1}]
+        with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as f:
+            out = f.name
+        try:
+            render_from_dicts(sections, out, preset='journal')
+            self.assertTrue(os.path.exists(out))
+        finally:
+            os.unlink(out)
+
+    def test_preset_invalid_raises(self):
+        sections = [{'title': '', 'body': 'x', 'level': 0}]
+        with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as f:
+            out = f.name
+        try:
+            with self.assertRaises(ValueError):
+                render_from_dicts(sections, out, preset='nonexistent')
+        finally:
+            if os.path.exists(out):
+                os.unlink(out)
 
 
 class TestPaperClass(unittest.TestCase):

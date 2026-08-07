@@ -179,6 +179,22 @@ def _m_sub_sup(parent, base_text, sub_text, sup_text):
     _m_run(sup, sup_text)
 
 
+def _m_nary(parent, ch, sub_text, sup_text):
+    """m:nary — ∑/∏/∫ 的上下限显示在符号正上/正下方（学术规范）。"""
+    nary = etree.SubElement(parent, f'{{{MATH_NS}}}nary')
+    naryPr = etree.SubElement(nary, f'{{{MATH_NS}}}naryPr')
+    chr_el = etree.SubElement(naryPr, f'{{{MATH_NS}}}chr')
+    chr_el.set(f'{{{MATH_NS}}}val', ch)
+    if sub_text:
+        sub = etree.SubElement(nary, f'{{{MATH_NS}}}sub')
+        _render_math_content(sub, sub_text)
+    if sup_text:
+        sup = etree.SubElement(nary, f'{{{MATH_NS}}}sup')
+        _render_math_content(sup, sup_text)
+    e = etree.SubElement(nary, f'{{{MATH_NS}}}e')
+    _render_math_content(e, '')
+
+
 def _normalize_commands(s):
     """Replace JSON-safe //cmd with \\cmd to avoid backslash escaping issues.
        //frac{a}{b} → \\frac{a}{b}, //sqrt{x} → \\sqrt{x}."""
@@ -303,6 +319,15 @@ def _render_math_content(parent, text):
                     i = rad_end + 1
                     continue
 
+        # ── ∑_{sub}^{sup} / ∏ / ∫ → m:nary（须在 sSubSup 之前匹配）──
+        m = re.match(r'([∑∏∫])_\{\s*([^}]+)\s*\}\^\{([^}]+)\}', s[i:])
+        if not m:
+            m = re.match(r'([∑∏∫])\^\{([^}]+)\}_\{\s*([^}]+)\s*\}', s[i:])
+        if m:
+            _m_nary(parent, m.group(1), m.group(2), m.group(3))
+            i += len(m.group(0))
+            continue
+
         # ── word_{sub}^{sup} or word^{sup}_{sub} ──
         m = re.match(r'(\S+?)_\{([^}]+)\}\^\{([^}]+)\}', s[i:])
         if not m:
@@ -393,7 +418,7 @@ def _clean_rtf_text(text):
 
 
 def _parse_rtf_table(filepath):
-    """Parse esttab RTF → (headers, data_rows, notes, title)."""
+    """Parse esttab RTF → (headers, data_rows, notes, title, col_widths)."""
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
 
@@ -414,8 +439,9 @@ def _parse_rtf_table(filepath):
                 notes = _clean_rtf_text(m.group(1))
                 break
 
-    # rows
+    # rows + 列宽（cellx 是 twips 边界位置，累计值）
     raw_rows = []
+    cell_edges = []
     BS = chr(92)
     segments = re.split('(' + re.escape(BS + 'trowd') + ')', content)
     for k in range(1, len(segments), 2):
@@ -427,6 +453,9 @@ def _parse_rtf_table(filepath):
         ncols = len(re.findall(re.escape(BS + 'cellx'), row_text))
         if ncols == 0:
             continue
+        widths = [int(x) for x in re.findall(re.escape(BS + 'cellx') + r'(\d+)', row_text)]
+        if widths:
+            cell_edges.append(widths)
         cell_parts = re.split(re.escape(BS + 'cell') + r'(?=\s|\\|$)', row_text)
         cells = []
         for part in cell_parts:
@@ -442,7 +471,21 @@ def _parse_rtf_table(filepath):
             raw_rows.append(cells[:ncols])
 
     if not raw_rows:
-        return None, [], notes, title
+        return None, [], notes, title, []
+
+    # 每列取最大右边界（表头行通常定义完整），相邻边界之差即列宽（twips）
+    col_widths = []
+    if cell_edges:
+        ncol = max(len(r) for r in cell_edges)
+        edges = []
+        for j in range(ncol):
+            vals = [r[j] for r in cell_edges if j < len(r)]
+            edges.append(max(vals) if vals else 0)
+        for j in range(ncol):
+            w = edges[j] - (edges[j-1] if j > 0 else 0)
+            col_widths.append(max(w, 0))
+        if not any(col_widths):
+            col_widths = []
 
     ncols = max(len(r) for r in raw_rows)
 
@@ -487,7 +530,7 @@ def _parse_rtf_table(filepath):
             continue
         merged_rows.append(row)
 
-    return [header_row], merged_rows, notes, title
+    return [header_row], merged_rows, notes, title, col_widths
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -534,7 +577,7 @@ def _set_cell_border(cell, **kwargs):
 
 def _add_rtf_table(doc, filepath, font_size=Pt(9)):
     """Parse esttab RTF and insert as 三线表."""
-    headers, rows, notes, title = _parse_rtf_table(filepath)
+    headers, rows, notes, title, col_widths = _parse_rtf_table(filepath)
     if headers is None:
         return
 
@@ -553,7 +596,12 @@ def _add_rtf_table(doc, filepath, font_size=Pt(9)):
 
     table = doc.add_table(rows=nrows, cols=ncols)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    table.autofit = True
+    table.autofit = False
+    if col_widths:
+        # 用 RTF 里的 cellx 列宽（twips → cm），避免 Word 自动分配挤压
+        for j, w in enumerate(col_widths):
+            if w > 0 and j < len(table.columns):
+                table.columns[j].width = Cm(w / 1440 * 2.54)
 
     for i, row_data in enumerate(all_rows):
         for j, val in enumerate(row_data):
@@ -630,26 +678,51 @@ def render(json_path, output="论文.docx", **kwargs):
     render_from_dicts(sections, output, **kwargs)
 
 
-def render_from_dicts(sections, output="论文.docx", *,
-                      tables_dir="tables", figures_dir="figures",
-                      table_map=None,
-                      # page
-                      margin_top=2.54, margin_bottom=2.54,
-                      margin_left=3.18, margin_right=2.54,
-                      # body
-                      body_size=12, body_line_spacing=1.5, body_indent=24,
-                      # headings
-                      heading1_size=16, heading2_size=14, heading3_size=10.5,
-                      # ref
-                      ref_size=10, ref_line_spacing=1.25,
-                      # table
-                      table_font_size=9,
-                      ):
+DEFAULTS = dict(
+    tables_dir="tables", figures_dir="figures", table_map=None,
+    margin_top=2.54, margin_bottom=2.54, margin_left=3.18, margin_right=2.54,
+    body_size=12, body_line_spacing=1.5, body_indent=24,
+    heading1_size=16, heading2_size=14, heading3_size=10.5,
+    ref_size=10, ref_line_spacing=1.25, table_font_size=9,
+)
+
+PRESETS = {
+    "thesis": {},  # 毕业论文（默认）
+    "journal": {   # 期刊投稿
+        "margin_left": 2.54, "body_size": 10.5, "body_indent": 21,
+        "heading1_size": 14, "heading2_size": 12, "ref_size": 9,
+    },
+    "working": {   # 工作论文
+        "margin_left": 2.54, "body_size": 12, "body_line_spacing": 1.5,
+        "body_indent": 24, "heading1_size": 15, "heading2_size": 13,
+        "ref_size": 10,
+    },
+}
+
+
+def render_from_dicts(sections, output="论文.docx", *, preset="thesis", **kwargs):
     """Render a list of section dicts → formatted .docx.
 
        Each section dict: {"title": str, "body": str, "level": int}
        Same format as paper_content.json, but passed as a Python list.
+
+       preset: "thesis"（毕业论文，默认）/ "journal"（期刊投稿）/
+               "working"（工作论文）。显式传入的 kwargs 覆盖 preset 值。
+       可用 kwargs：tables_dir, figures_dir, table_map, margin_top/bottom/left/right,
+       body_size, body_line_spacing, body_indent, heading1_size/2/3,
+       ref_size, ref_line_spacing, table_font_size。
     """
+    if preset not in PRESETS:
+        raise ValueError(f"未知 preset: {preset!r}，可选 {list(PRESETS)}")
+    p = {**DEFAULTS, **PRESETS[preset], **kwargs}
+    tables_dir, figures_dir, table_map = p["tables_dir"], p["figures_dir"], p["table_map"]
+    margin_top, margin_bottom = p["margin_top"], p["margin_bottom"]
+    margin_left, margin_right = p["margin_left"], p["margin_right"]
+    body_size, body_line_spacing, body_indent = (p["body_size"], p["body_line_spacing"], p["body_indent"])
+    heading1_size, heading2_size, heading3_size = (p["heading1_size"], p["heading2_size"], p["heading3_size"])
+    ref_size, ref_line_spacing = p["ref_size"], p["ref_line_spacing"]
+    table_font_size = p["table_font_size"]
+
     doc = Document()
 
     # page setup
@@ -688,7 +761,7 @@ def render_from_dicts(sections, output="论文.docx", *,
 
         # --- title block (level 0 + has title + not abstract/keywords) ---
         if level == 0 and title and title not in ('关键词', 'Keywords') \
-                and not title.startswith('摘'):
+                and title != '摘要':
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p.paragraph_format.space_after = Pt(4)
@@ -783,13 +856,20 @@ def render_from_dicts(sections, output="论文.docx", *,
             continue
 
         if body.startswith("IMAGE:"):
-            name = body.replace("IMAGE:", "").strip()
+            # IMAGE:file.png 或 IMAGE:file.png:14（指定宽度 cm）
+            spec = body.replace("IMAGE:", "").strip()
+            parts = spec.split(":")
+            name = parts[0].strip()
+            try:
+                width = Cm(float(parts[1].strip())) if len(parts) > 1 and parts[1].strip() else Cm(10)
+            except ValueError:
+                width = Cm(10)
             fp = _resolve_image(name)
             if os.path.exists(fp):
                 p = doc.add_paragraph()
                 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 r = p.add_run()
-                r.add_picture(fp, width=Cm(10))
+                r.add_picture(fp, width=width)
             else:
                 print(f"[cn_docx] WARNING: image file not found: {fp}")
             continue
