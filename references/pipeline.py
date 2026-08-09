@@ -463,13 +463,22 @@ def _parse_rtf_table(filepath):
 
     # notes — find \pard\ql block containing 注 after last table row
     # esttab 输出用 RTF 转义 \\u27880 表示「注」; 手写夹具可能直接写 UTF-8「注」
+    # 多行表注(「注：…\par 数据来源：…」)可在一个 \pard 块内(\par 分隔)或跨多个块:
+    # 从含「注」的块起收集到最后一个块, 原正则到第一个 \par 就停导致后续行丢失
     notes = ""
     last_row = content.rfind('\\row')
     if last_row > 0:
-        for m in re.finditer(r'\{\\pard\\ql\\fs\d+\s(.+?)\\par\}', content[last_row:]):
-            if '\\u27880' in m.group(1) or '注' in m.group(1):
-                notes = _clean_rtf_text(m.group(1))
-                break
+        note_parts = []
+        started = False
+        for m in re.finditer(r'\{\\pard\\ql\\fs\d+\s(.+?)(?=\{\\pard|\Z)',
+                             content[last_row:], re.S):
+            block = m.group(1)
+            if '\\u27880' in block or '注' in block:
+                started = True
+            if started:
+                note_parts.append(block)
+        if note_parts:
+            notes = _clean_rtf_text(' '.join(note_parts))
 
     # rows + 列宽（cellx 是 twips 边界位置，累计值）
     raw_rows = []
