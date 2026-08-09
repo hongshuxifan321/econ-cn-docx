@@ -52,7 +52,40 @@ def _fix_quotes(text):
         result.append(ch)
     if in_quote:
         result.append('”')
-    return ''.join(result)
+    return _remove_extra_spaces(''.join(result))
+
+
+# ═══════════════════════════════════════════════════════════════
+# CJK spacing cleanup
+# ═══════════════════════════════════════════════════════════════
+
+# 汉字 + 全角标点(弯引号/书名号/顿号句号/全角符号等)
+_CJK_FULLWIDTH = (
+    r'一-鿿'                 # 汉字
+    r'‘’“”'      # 弯单/双引号
+    r'、。《》「」『』'  # 顿句书名号
+    r'！-～'                 # 全角标点
+    r'—…'                  # 破折号/省略号
+)
+# 西文内容字符: 字母数字 + % + 半角括号
+# (% 是数字后缀, 与汉字间不留空格「1%的」; 括号同理「他(说)」)
+_LATIN_CONTENT = r'A-Za-z0-9%()'
+# 西文标点: 其后空格一律保留(参考文献 GB/T 7714 的 `, ` `. ` 及序号 `[2] ` 格式空格)
+_LATIN_PUNCT = r',.;:!?\[\]{}<>"\x27/\\@#$&*+=|~^`'
+
+
+def _remove_extra_spaces(text):
+    """删除中文语境中的多余半角空格, 输出全紧凑混排。
+
+    删: 汉字/全角标点 与 汉字/全角标点 之间、汉字/全角标点 与 西文字母数字 之间。
+    留: 西文标点之后的空格(参考文献 `陈诗一, 陈登科. 雾霾污染` 的格式空格),
+        纯英文内部空格(`Dingel, J. I.`)。
+    例: "GDP" 与 "CPI" → “GDP”与“CPI”;  GDP 与 CPI → GDP与CPI;  PM2.5 浓度 → PM2.5浓度
+    """
+    text = re.sub(rf'(?<=[{_CJK_FULLWIDTH}]) (?=[{_CJK_FULLWIDTH}])', '', text)
+    text = re.sub(rf'(?<=[{_LATIN_CONTENT}]) (?=[{_CJK_FULLWIDTH}])', '', text)
+    text = re.sub(rf'(?<=[{_CJK_FULLWIDTH}]) (?=[{_LATIN_CONTENT}])', '', text)
+    return text
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -626,7 +659,7 @@ def _add_rtf_table(doc, filepath, font_size=Pt(9)):
         p.paragraph_format.space_before = Pt(2)
         p.paragraph_format.space_after = Pt(6)
         p.paragraph_format.line_spacing = 1.0
-        r = p.add_run(notes)
+        r = p.add_run(_fix_quotes(notes))
         set_cn_font(r, "宋体", Pt(9))
 
 
@@ -858,13 +891,12 @@ def render_from_dicts(sections, output="论文.docx", *, preset="thesis", **kwar
 
         if body.startswith("IMAGE:"):
             # IMAGE:file.png 或 IMAGE:file.png:14（指定宽度 cm）
+            # 从末尾分离宽度: 文件名本身可能含盘符冒号(C:\fig\a.png),
+            # split(":") 会截断成 'C', 用「末尾冒号+数字」正则只在确有宽度时拆分
             spec = body.replace("IMAGE:", "").strip()
-            parts = spec.split(":")
-            name = parts[0].strip()
-            try:
-                width = Cm(float(parts[1].strip())) if len(parts) > 1 and parts[1].strip() else Cm(10)
-            except ValueError:
-                width = Cm(10)
+            m = re.match(r"^(.*?):(\d+(?:\.\d+)?)$", spec)
+            name = (m.group(1) if m else spec).strip()
+            width = Cm(float(m.group(2))) if m else Cm(10)
             fp = _resolve_image(name)
             if os.path.exists(fp):
                 p = doc.add_paragraph()

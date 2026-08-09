@@ -39,10 +39,11 @@ class TestFixQuotes(unittest.TestCase):
         self.assertIn('”', result)
 
     def test_english_quotes_with_space(self):
-        """S3 回归: 英文引号夹空格场景, 之前会错配成 “GDP" 与 "CPI”。"""
+        """S3 回归: 英文引号夹空格场景, 之前会错配成 “GDP" 与 "CPI”。
+        2026-08-09 起: 引号与汉字之间的空格一并清理, 输出全紧凑。"""
         self.assertEqual(
             _fix_quotes('基于"GDP" 与 "CPI"的对比'),
-            '基于“GDP” 与 “CPI”的对比')
+            '基于“GDP”与“CPI”的对比')
 
     def test_quote_before_ascii_paren(self):
         """S3 回归: 闭引号后接 ASCII 括号也应闭合。"""
