@@ -38,6 +38,16 @@ class TestFixQuotes(unittest.TestCase):
         self.assertIn('“', result)
         self.assertIn('”', result)
 
+    def test_english_quotes_with_space(self):
+        """S3 回归: 英文引号夹空格场景, 之前会错配成 “GDP" 与 "CPI”。"""
+        self.assertEqual(
+            _fix_quotes('基于"GDP" 与 "CPI"的对比'),
+            '基于“GDP” 与 “CPI”的对比')
+
+    def test_quote_before_ascii_paren(self):
+        """S3 回归: 闭引号后接 ASCII 括号也应闭合。"""
+        self.assertEqual(_fix_quotes('他(说"你好")'), '他(说“你好”)')
+
 
 class TestLatexToUnicode(unittest.TestCase):
     def test_greek_lower(self):
@@ -55,8 +65,9 @@ class TestLatexToUnicode(unittest.TestCase):
     def test_partial(self):
         self.assertIn('∂', _latex_to_unicode('\\partial'))
 
-    def test_text_command(self):
-        self.assertEqual(_latex_to_unicode('\\text{GDP}'), 'GDP')
+    def test_text_command_preserved(self):
+        # \\text 剥壳移到渲染层, 这里只保证命令原样保留
+        self.assertEqual(_latex_to_unicode('\\text{GDP}'), '\\text{GDP}')
 
     def test_keeps_underscore_brace(self):
         s = _latex_to_unicode('x_{it}')
@@ -122,6 +133,22 @@ class TestOMMLMathContent(unittest.TestCase):
         chr_vals = [e.get(f'{{{MATH_NS}}}val') for e in omath.findall(f'.//{{{MATH_NS}}}chr')]
         self.assertIn('∑', chr_vals)
 
+    def test_sum_lim_loc_undover(self):
+        """M6 回归: 上下限必须显式置于正上/正下方(limLoc=undOvr)。"""
+        omath = self._render('\\sum_{i=1}^{n} x_{i}')
+        lims = omath.findall(f'.//{{{MATH_NS}}}limLoc')
+        self.assertEqual(len(lims), 1)
+        self.assertEqual(lims[0].get(f'{{{MATH_NS}}}val'), 'undOvr')
+
+    def test_text_command_upright(self):
+        """M5 回归: \\text{...} 渲染为正体 run(m:sty val='p'), 非数学斜体。"""
+        omath = self._render('\\text{GDP}')
+        stys = omath.findall(f'.//{{{MATH_NS}}}sty')
+        self.assertEqual(len(stys), 1)
+        self.assertEqual(stys[0].get(f'{{{MATH_NS}}}val'), 'p')
+        texts = [t.text for t in omath.findall(f'.//{{{MATH_NS}}}t')]
+        self.assertEqual(''.join(texts), 'GDP')
+
     def test_sum_without_limits_stays_plain(self):
         omath = self._render('\\sum x')
         narys = omath.findall(f'.//{{{MATH_NS}}}nary')
@@ -143,19 +170,63 @@ class TestRTFParser(unittest.TestCase):
         self.rtf_path = os.path.join(os.path.dirname(__file__),
                                      'tests', 'tables', 'test_table.rtf')
 
-    def test_parse_returns_headers_rows_notes_title(self):
-        headers, rows, notes, title, col_widths = _parse_rtf_table(self.rtf_path)
-        self.assertIsNotNone(headers)
-        # Title may be empty if RTF format doesn't match esttab conventions
+    def _parse(self, rtf_text):
+        import tempfile as _tf
+        with _tf.NamedTemporaryFile(suffix='.rtf', delete=False, mode='w',
+                                    encoding='utf-8') as f:
+            f.write(rtf_text)
+            tmp = f.name
+        try:
+            return _parse_rtf_table(tmp)
+        finally:
+            os.unlink(tmp)
 
-    def test_parse_has_data_rows(self):
+    def test_parse_cell_contents(self):
+        """内容级断言: 表头、数据、标题、注逐单元格比对(S1/S2 回归)。"""
         headers, rows, notes, title, col_widths = _parse_rtf_table(self.rtf_path)
-        self.assertGreaterEqual(len(rows), 1)
+        self.assertEqual(headers, [['变量', '(1)']])
+        self.assertEqual(rows, [['x', '0.123***'], ['z', '-0.045']])
+        self.assertEqual(title, '表一：测试表格')
+        self.assertIn('注', notes)
+        self.assertIn('标准误', notes)
 
     def test_parse_col_widths(self):
         headers, rows, notes, title, col_widths = _parse_rtf_table(self.rtf_path)
         self.assertGreaterEqual(len(col_widths), 2)  # 至少两列有宽度
         self.assertTrue(all(w > 0 for w in col_widths))
+
+    def test_parse_merges_se_rows(self):
+        """SE 行(空首列)合并进上一行并加括号。"""
+        rtf = (
+            '{\\rtf1\\ansi\\deff0\n'
+            '{\\pard\\qc\\fs20 表二：SE合并测试\\par}\n'
+            '\\trowd\\cellx3000\\cellx6000\n'
+            '{\\pard\\intbl\\qc 变量\\cell}{\\pard\\intbl\\qc (1)\\cell}\\row\n'
+            '\\trowd\\cellx3000\\cellx6000\n'
+            '{\\pard\\intbl\\qc x\\cell}{\\pard\\intbl\\qc 0.123***\\cell}\\row\n'
+            '\\trowd\\cellx3000\\cellx6000\n'
+            '{\\pard\\intbl\\qc \\cell}{\\pard\\intbl\\qc (0.045)\\cell}\\row\n'
+            '{\\pard\\ql\\fs18 注：标准误。*** p<0.01\\par}\n}'
+        )
+        headers, rows, notes, title, col_widths = self._parse(rtf)
+        self.assertEqual(headers, [['变量', '(1)']])
+        self.assertEqual(rows, [['x', '0.123***\n(0.045)']])
+
+    def test_parse_multi_row_header(self):
+        """多行表头(首列空续行)合并: esttab 真实形态 空|(1) → 空|OLS。"""
+        rtf = (
+            '{\\rtf1\\ansi\\deff0\n'
+            '\\trowd\\cellx3000\\cellx6000\n'
+            '{\\pard\\intbl\\qc \\cell}{\\pard\\intbl\\qc (1)\\cell}\\row\n'
+            '\\trowd\\cellx3000\\cellx6000\n'
+            '{\\pard\\intbl\\qc \\cell}{\\pard\\intbl\\qc OLS\\cell}\\row\n'
+            '\\trowd\\cellx3000\\cellx6000\n'
+            '{\\pard\\intbl\\qc x\\cell}{\\pard\\intbl\\qc 0.123***\\cell}\\row\n'
+            '{\\pard\\ql\\fs18 注：标准误。\\par}\n}'
+        )
+        headers, rows, notes, title, col_widths = self._parse(rtf)
+        self.assertEqual(headers, [['', '(1)\nOLS']])
+        self.assertEqual(rows, [['x', '0.123***']])
 
 
 class TestBodyParagraph(unittest.TestCase):

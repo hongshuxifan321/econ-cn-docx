@@ -64,11 +64,15 @@ p.equation(r"\frac{\partial y_{it}}{\partial PM_{ct}} = \beta_{1} + \beta_{2} \t
 p.para("N次方根：")
 p.equation(r"\sqrt[3]{x^{2} + y^{2}}")
 
-# Render
-out = os.path.join(ROOT, "测试_output.docx")
-p.render(out,
-         tables_dir=os.path.join(ROOT, "tables"),
-         figures_dir=os.path.join(ROOT, "figures"))
-
-size_kb = os.path.getsize(out) / 1024
-print(f"OK - {out} ({size_kb:.1f} KB)")
+# Render → 输出到系统临时目录, 运行后清理, 不污染 tests/
+import tempfile
+out = os.path.join(tempfile.gettempdir(), "测试_output.docx")
+try:
+    p.render(out,
+             tables_dir=os.path.join(ROOT, "tables"),
+             figures_dir=os.path.join(ROOT, "figures"))
+    size_kb = os.path.getsize(out) / 1024
+    print(f"OK - {out} ({size_kb:.1f} KB)")
+finally:
+    if os.path.exists(out):
+        os.unlink(out)

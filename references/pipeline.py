@@ -38,12 +38,14 @@ def _fix_quotes(text):
             prev = text[i-1] if i > 0 else ' '
             nxt = text[i+1] if i+1 < len(text) else ' '
             if not in_quote:
-                if ord(prev) > 127 or prev in '，。、；：！？）】」\n\r\t' or i == 0:
+                # 开引号:前面不是 ASCII 字母数字(空格、CJK、标点、行首均可开)
+                if i == 0 or not (prev.isalnum() and ord(prev) < 128):
                     result.append('“')
                     in_quote = True
                     continue
             else:
-                if ord(nxt) > 127 or nxt in '，。、；：！？）】」\n\r\t' or i+1 >= len(text):
+                # 闭引号:后面不是 ASCII 字母数字(空格、CJK、标点、行尾均可闭)
+                if i+1 >= len(text) or not (nxt.isalnum() and ord(nxt) < 128):
                     result.append('”')
                     in_quote = False
                     continue
@@ -123,6 +125,18 @@ def _m_run(parent, text):
     return r
 
 
+def _m_run_text(parent, text):
+    """m:r with m:rPr/m:sty val='p' — upright (non-italic) math text."""
+    r = etree.SubElement(parent, f'{{{MATH_NS}}}r')
+    rPr = etree.SubElement(r, f'{{{MATH_NS}}}rPr')
+    sty = etree.SubElement(rPr, f'{{{MATH_NS}}}sty')
+    sty.set(f'{{{MATH_NS}}}val', 'p')
+    t = etree.SubElement(r, f'{{{MATH_NS}}}t')
+    t.set(f'{{{XML_NS}}}space', 'preserve')
+    t.text = text
+    return r
+
+
 def _m_box(parent, text):
     """Wrap text in a math box (m:box) inside an m:e for frac/rad args."""
     box = _m('box')
@@ -185,6 +199,11 @@ def _m_nary(parent, ch, sub_text, sup_text):
     naryPr = etree.SubElement(nary, f'{{{MATH_NS}}}naryPr')
     chr_el = etree.SubElement(naryPr, f'{{{MATH_NS}}}chr')
     chr_el.set(f'{{{MATH_NS}}}val', ch)
+    # 上下限显式置于符号正上/正下方, 不依赖 Word 版本默认
+    lim_loc = etree.SubElement(naryPr, f'{{{MATH_NS}}}limLoc')
+    lim_loc.set(f'{{{MATH_NS}}}val', 'undOvr')
+    grow = etree.SubElement(naryPr, f'{{{MATH_NS}}}grow')
+    grow.set(f'{{{MATH_NS}}}val', '1')
     if sub_text:
         sub = etree.SubElement(nary, f'{{{MATH_NS}}}sub')
         _render_math_content(sub, sub_text)
@@ -195,75 +214,14 @@ def _m_nary(parent, ch, sub_text, sup_text):
     _render_math_content(e, '')
 
 
-def _normalize_commands(s):
-    """Replace JSON-safe //cmd with \\cmd to avoid backslash escaping issues.
-       //frac{a}{b} → \\frac{a}{b}, //sqrt{x} → \\sqrt{x}."""
-    for cmd in ['frac', 'sqrt', 'partial', 'bar', 'hat', 'tilde', 'dot',
-                'sum', 'prod', 'int', 'infty', 'times', 'cdot', 'pm',
-                'leq', 'geq', 'neq', 'approx', 'to', 'rightarrow', 'Rightarrow']:
-        s = s.replace('//' + cmd, '\\' + cmd)
-    return s
-
-
-# Whitelist: every backslash-command this system can handle.
-# Built from _LATEX_UNICODE + _DIACRITICS + structural commands.
-_VALID_LATEX_COMMANDS = (
-    set(_LATEX_UNICODE.keys())
-    | set(_DIACRITICS.keys())
-    | {'\\frac', '\\sqrt', '\\text'}
-)
-
-# Map JSON escape chars back to the letter that follows a backslash.
-_CTRL_TO_LETTER = {
-    '\x07': 'a',   # bell      → \\a... (\\alpha)
-    '\x08': 'b',   # backspace → \\b... (\\beta, \\bar)
-    '\x09': 't',   # tab       → \\t... (\\tau, \\times, \\text, \\tilde, \\theta)
-    '\x0a': 'n',   # newline   → \\n... (\\neq, \\nu)
-    '\x0c': 'f',   # form feed → \\f... (\\frac)
-    '\x0d': 'r',   # CR        → \\r... (\\rho, \\rightarrow, \\Rightarrow)
-}
-
-
-def _sanitize_latex(s):
-    """Fix JSON-escape artifacts in LaTeX — only when the result is a known
-       LaTeX command.  JSON may turn \\beta into <backspace>eta; we detect
-       that <backspace> + 'eta' rebuilds \\beta, which is in the whitelist,
-       so we restore it.  Unrecognised control chars are left untouched.
-    """
-    result = []
-    i = 0
-    while i < len(s):
-        ch = s[i]
-        if ch in _CTRL_TO_LETTER:
-            letter = _CTRL_TO_LETTER[ch]
-            # Scan ahead for letters to form a candidate command
-            j = i + 1
-            while j < len(s) and s[j].isalpha():
-                j += 1
-            candidate = '\\' + letter + s[i + 1:j]
-            if candidate in _VALID_LATEX_COMMANDS:
-                result.append(candidate)
-                i = j
-                continue
-        result.append(ch)
-        i += 1
-    r = ''.join(result)
-    # Also handle json.dump writing \\uXXXX escapes
-    r = re.sub(r'\\\\u([0-9a-fA-F]{4})',
-               lambda m: chr(int(m.group(1), 16)), r)
-    return r
-
-
 def _latex_to_unicode(s):
     """LaTeX commands → Unicode for direct OMML rendering."""
-    s = _normalize_commands(s)
-    s = _sanitize_latex(s)
     for cmd, uni in _LATEX_UNICODE.items():
         s = s.replace(cmd, uni)
     for cmd, diac in _DIACRITICS.items():
         # \\bar{x} → x + combining macron
         s = re.sub(rf'{re.escape(cmd)}\{{(\w)\}}', rf'\1{diac}', s)
-    s = re.sub(r'\\text\{([^}]+)\}', r'\1', s)
+    # 注意: \\text{...} 不在此剥壳, 由 _render_math_content 生成正体 run
     return s
 
 
@@ -289,6 +247,13 @@ def _render_math_content(parent, text):
     s = _latex_to_unicode(text)
     i = 0
     while i < len(s):
+        # ── \\text{...} → 正体 run(须在 \\frac 之前, \\text 与 \\frac 互斥)──
+        m = re.match(r'\\text\{([^}]*)\}', s[i:])
+        if m:
+            _m_run_text(parent, m.group(1))
+            i += len(m.group(0))
+            continue
+
         # ── \\frac{num}{den} ──
         if s[i:].startswith('\\frac{') and i+6 < len(s):
             brace_start = i + 5  # after \\frac
@@ -426,16 +391,17 @@ def _parse_rtf_table(filepath):
     title = ""
     m = re.search(r'\{\\pard\\keepn\\ql\s(.+?)\\par\}', content)
     if not m:
-        m = re.search(r'\{\\pard\\qc\\.+?\\fs\d+\s(.+?)\\par\}', content)
+        m = re.search(r'\{\\pard\\qc\\fs\d+\s(.+?)\\par\}', content)
     if m:
         title = _clean_rtf_text(m.group(1))
 
     # notes — find \pard\ql block containing 注 after last table row
+    # esttab 输出用 RTF 转义 \\u27880 表示「注」; 手写夹具可能直接写 UTF-8「注」
     notes = ""
     last_row = content.rfind('\\row')
     if last_row > 0:
         for m in re.finditer(r'\{\\pard\\ql\\fs\d+\s(.+?)\\par\}', content[last_row:]):
-            if '\\u27880' in m.group(1):  # 注
+            if '\\u27880' in m.group(1) or '注' in m.group(1):
                 notes = _clean_rtf_text(m.group(1))
                 break
 
@@ -456,7 +422,7 @@ def _parse_rtf_table(filepath):
         widths = [int(x) for x in re.findall(re.escape(BS + 'cellx') + r'(\d+)', row_text)]
         if widths:
             cell_edges.append(widths)
-        cell_parts = re.split(re.escape(BS + 'cell') + r'(?=\s|\\|$)', row_text)
+        cell_parts = re.split(re.escape(BS + 'cell') + r'(?=\s|\\|}|$)', row_text)
         cells = []
         for part in cell_parts:
             part = part.strip()
@@ -660,6 +626,8 @@ def _add_body_paragraph(doc, text, size=Pt(12), indent=Pt(24),
             r = p.add_run(_fix_quotes(part))
             set_cn_font(r, "宋体", size)
         else:
+            if '\\' in part:
+                print(f"[cn_docx] WARNING: 内联公式含未支持命令: {part!r} — 请改用 equation()")
             _add_inline_omath(p, part)
 
 
@@ -920,10 +888,8 @@ def render_from_dicts(sections, output="论文.docx", *, preset="thesis", **kwar
                 set_cn_font(r, "宋体", Pt(body_size))
                 continue
 
-            # H1/H2/H3 hypothesis line → bold
-            if any(para_text.startswith(f"H{i}") for i in range(1, 5)) or \
-               any(para_text.startswith(f"H{i}{c}")
-                   for i in range(1, 5) for c in "ab"):
+            # H1/H2/H3 hypothesis line → bold (H1N1、H2O 等不误判)
+            if re.match(r'^H[1-4][ab]?[：:．.。\s]', para_text):
                 p = doc.add_paragraph()
                 p.paragraph_format.first_line_indent = Pt(body_indent)
                 p.paragraph_format.line_spacing = body_line_spacing
