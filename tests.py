@@ -140,6 +140,27 @@ class TestOMMLMathContent(unittest.TestCase):
         self.assertEqual(len(lims), 1)
         self.assertEqual(lims[0].get(f'{{{MATH_NS}}}val'), 'undOvr')
 
+    def test_sum_nary_e_contains_expr(self):
+        """修复回归: 被求和表达式必须进入 m:nary 的 e, 否则 Word 显示点状方框。"""
+        omath = self._render('\\sum_{i=1}^{n} x_{i}')
+        nary = omath.findall(f'.//{{{MATH_NS}}}nary')[0]
+        e = nary.find(f'{{{MATH_NS}}}e')
+        self.assertIsNotNone(e)
+        # x_{i} 在 e 内渲染为完整的 sSub 结构(base=x + sub=i), 而非游离文本
+        e_subs = e.findall(f'{{{MATH_NS}}}sSub')
+        self.assertEqual(len(e_subs), 1)
+        texts = [t.text for t in e.findall(f'.//{{{MATH_NS}}}t')]
+        self.assertIn('x', texts)
+        self.assertIn('i', texts)
+
+    def test_sum_nary_e_plain(self):
+        """无被求和表达式的 ∑ 不渲染空 e, 不产生方框。"""
+        omath = self._render('\\sum_{i=1}^{n}')
+        nary = omath.findall(f'.//{{{MATH_NS}}}nary')[0]
+        e = nary.find(f'{{{MATH_NS}}}e')
+        self.assertIsNotNone(e)
+        self.assertEqual(len(list(e)), 0)  # e 为空元素, Word 不显示占位框
+
     def test_text_command_upright(self):
         """M5 回归: \\text{...} 渲染为正体 run(m:sty val='p'), 非数学斜体。"""
         omath = self._render('\\text{GDP}')
@@ -148,6 +169,18 @@ class TestOMMLMathContent(unittest.TestCase):
         self.assertEqual(stys[0].get(f'{{{MATH_NS}}}val'), 'p')
         texts = [t.text for t in omath.findall(f'.//{{{MATH_NS}}}t')]
         self.assertEqual(''.join(texts), 'GDP')
+
+    def test_text_command_subscript(self):
+        """修复回归: \\text{GDP}_{t} 必须渲染为下标, base 为正体。"""
+        omath = self._render('\\text{GDP}_{t}')
+        subs = omath.findall(f'.//{{{MATH_NS}}}sSub')
+        self.assertEqual(len(subs), 1)
+        # base 是正体 run
+        stys = omath.findall(f'.//{{{MATH_NS}}}sty')
+        self.assertEqual(len(stys), 1)
+        self.assertEqual(stys[0].get(f'{{{MATH_NS}}}val'), 'p')
+        texts = [t.text for t in omath.findall(f'.//{{{MATH_NS}}}t')]
+        self.assertEqual(''.join(texts), 'GDPt')
 
     def test_sum_without_limits_stays_plain(self):
         omath = self._render('\\sum x')

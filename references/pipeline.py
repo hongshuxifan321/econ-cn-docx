@@ -167,34 +167,35 @@ def _m_frac(parent, num_text, den_text):
     _render_math_content(den, den_text)
 
 
-def _m_sub(parent, base_text, sub_text):
+def _m_sub(parent, base_text, sub_text, plain_base=False):
     sSub = etree.SubElement(parent, f'{{{MATH_NS}}}sSub')
     e = etree.SubElement(sSub, f'{{{MATH_NS}}}e')
-    _m_run(e, base_text)
+    (_m_run_text if plain_base else _m_run)(e, base_text)
     sub = etree.SubElement(sSub, f'{{{MATH_NS}}}sub')
     _m_run(sub, sub_text)
 
 
-def _m_sup(parent, base_text, sup_text):
+def _m_sup(parent, base_text, sup_text, plain_base=False):
     sSup = etree.SubElement(parent, f'{{{MATH_NS}}}sSup')
     e = etree.SubElement(sSup, f'{{{MATH_NS}}}e')
-    _m_run(e, base_text)
+    (_m_run_text if plain_base else _m_run)(e, base_text)
     sup = etree.SubElement(sSup, f'{{{MATH_NS}}}sup')
     _m_run(sup, sup_text)
 
 
-def _m_sub_sup(parent, base_text, sub_text, sup_text):
+def _m_sub_sup(parent, base_text, sub_text, sup_text, plain_base=False):
     sSubSup = etree.SubElement(parent, f'{{{MATH_NS}}}sSubSup')
     e = etree.SubElement(sSubSup, f'{{{MATH_NS}}}e')
-    _m_run(e, base_text)
+    (_m_run_text if plain_base else _m_run)(e, base_text)
     sub = etree.SubElement(sSubSup, f'{{{MATH_NS}}}sub')
     _m_run(sub, sub_text)
     sup = etree.SubElement(sSubSup, f'{{{MATH_NS}}}sup')
     _m_run(sup, sup_text)
 
 
-def _m_nary(parent, ch, sub_text, sup_text):
-    """m:nary — ∑/∏/∫ 的上下限显示在符号正上/正下方（学术规范）。"""
+def _m_nary(parent, ch, sub_text, sup_text, e_text=""):
+    """m:nary — ∑/∏/∫ 的上下限显示在符号正上/正下方（学术规范）。
+    e_text 是被求和/连乘/积分表达式, 为空时 Word 会显示点状占位框。"""
     nary = etree.SubElement(parent, f'{{{MATH_NS}}}nary')
     naryPr = etree.SubElement(nary, f'{{{MATH_NS}}}naryPr')
     chr_el = etree.SubElement(naryPr, f'{{{MATH_NS}}}chr')
@@ -211,7 +212,8 @@ def _m_nary(parent, ch, sub_text, sup_text):
         sup = etree.SubElement(nary, f'{{{MATH_NS}}}sup')
         _render_math_content(sup, sup_text)
     e = etree.SubElement(nary, f'{{{MATH_NS}}}e')
-    _render_math_content(e, '')
+    if e_text:
+        _render_math_content(e, e_text)
 
 
 def _latex_to_unicode(s):
@@ -247,11 +249,27 @@ def _render_math_content(parent, text):
     s = _latex_to_unicode(text)
     i = 0
     while i < len(s):
-        # ── \\text{...} → 正体 run(须在 \\frac 之前, \\text 与 \\frac 互斥)──
+        # ── \\text{...} → 正体 run, 支持紧跟的 _{sub}/^{sup}（须在 \\frac 之前）──
         m = re.match(r'\\text\{([^}]*)\}', s[i:])
         if m:
-            _m_run_text(parent, m.group(1))
-            i += len(m.group(0))
+            base = m.group(1)
+            j = i + len(m.group(0))
+            # 正体 base 上的上下标: \text{GDP}_{t}、\text{RWI}^{c}
+            ms = re.match(r'(_\{[^}]+\}|\^\{[^}]+\})+', s[j:])
+            if ms:
+                seg = ms.group(0)
+                subs = re.findall(r'_\{([^}]+)\}', seg)
+                sups = re.findall(r'\^\{([^}]+)\}', seg)
+                if subs and sups:
+                    _m_sub_sup(parent, base, subs[0], sups[0], plain_base=True)
+                elif subs:
+                    _m_sub(parent, base, subs[0], plain_base=True)
+                else:
+                    _m_sup(parent, base, sups[0], plain_base=True)
+                j += len(seg)
+            else:
+                _m_run_text(parent, base)
+            i = j
             continue
 
         # ── \\frac{num}{den} ──
@@ -289,8 +307,23 @@ def _render_math_content(parent, text):
         if not m:
             m = re.match(r'([∑∏∫])\^\{([^}]+)\}_\{\s*([^}]+)\s*\}', s[i:])
         if m:
-            _m_nary(parent, m.group(1), m.group(2), m.group(3))
-            i += len(m.group(0))
+            # 被求和/连乘/积分表达式作为 e 传入（到下一个顶层 + - = 为止），
+            # 否则 e 为空, Word 显示点状占位方框
+            j = i + len(m.group(0))
+            depth = 0
+            k = j
+            while k < len(s):
+                ch = s[k]
+                if ch in '([{':
+                    depth += 1
+                elif ch in ')]}':
+                    depth = max(0, depth - 1)
+                elif depth == 0 and ch in '+-=':
+                    break
+                k += 1
+            _m_nary(parent, m.group(1), m.group(2), m.group(3),
+                    s[j:k].strip())
+            i = k
             continue
 
         # ── word_{sub}^{sup} or word^{sup}_{sub} ──
