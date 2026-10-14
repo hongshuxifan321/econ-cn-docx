@@ -743,6 +743,35 @@ PRESETS = {
 }
 
 
+def _stamp_doc_properties(doc):
+    """写入正确的文档属性：生成时间 + 清空 python-docx 模板署名。
+
+    python-docx 内置空白模板把 created/modified 写死为
+    2013-12-23T23:15:00Z、author 写为 "python-docx"、app.xml 的
+    Application 写为 "Microsoft Macintosh Word"；不覆盖的话，文件属性
+    （Windows 资源管理器 → 属性 → 详细信息）会显示错误的时间与来源。
+    """
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    cp = doc.core_properties
+    cp.author = ""
+    cp.last_modified_by = ""
+    cp.comments = ""
+    cp.created = now
+    cp.modified = now
+
+    # app.xml（extended properties）无公开 API，直接改 part 字节
+    for part in doc.part.package.iter_parts():
+        if part.content_type == (
+            "application/vnd.openxmlformats-officedocument.extended-properties+xml"
+        ):
+            part._blob = part.blob.replace(
+                b"<Application>Microsoft Macintosh Word</Application>",
+                b"<Application>Microsoft Office Word</Application>",
+            )
+            break
+
+
 def render_from_dicts(sections, output="论文.docx", *, preset="thesis", **kwargs):
     """Render a list of section dicts → formatted .docx.
 
@@ -767,6 +796,7 @@ def render_from_dicts(sections, output="论文.docx", *, preset="thesis", **kwar
     table_font_size = p["table_font_size"]
 
     doc = Document()
+    _stamp_doc_properties(doc)
 
     # page setup
     for section in doc.sections:
