@@ -3,7 +3,7 @@
 经管实证论文中文学术 Word 排版。Python DSL 写论文，一个 `render()` 出 docx。
 
 ```bash
-pip install -e ~/.claude/skills/econ-cn-docx
+pip install -e ~/.dsh/skills/econ-cn-docx
 ```
 
 ## 快速开始

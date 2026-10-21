@@ -10,7 +10,7 @@ user-invocable: true
 ## 快速开始
 
 ```bash
-pip install -e ~/.claude/skills/econ-cn-docx
+pip install -e ~/.dsh/skills/econ-cn-docx
 ```
 
 ```python
