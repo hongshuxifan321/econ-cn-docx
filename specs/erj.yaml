@@ -1,9 +1,0 @@
-# 《经济研究》投稿体例 —— 通用版式（base）的别名
-#
-# 2026-10-31 起，通用版式 specs/base.yaml 本身就是经研投稿体例，
-# 所以 spec="erj" 与不写 spec 完全等价；这个文件只为兼容旧调用保留。
-#
-# 要改经研体例，改 specs/base.yaml（那一份带逐项出处 sources），不要改这里。
-# 要出另一本刊的稿，新建 yaml，首行写 extends: base，只列与经研不同的键。
-
-extends: base

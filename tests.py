@@ -322,12 +322,12 @@ class TestRenderFromDicts(unittest.TestCase):
         finally:
             os.unlink(out)
 
-    def test_spec_erj(self):
+    def test_render_with_default_spec(self):
         sections = [{'title': '引　言', 'body': '正文。', 'level': 1}]
         with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as f:
             out = f.name
         try:
-            render_from_dicts(sections, out, spec='erj')
+            render_from_dicts(sections, out)
             self.assertTrue(os.path.exists(out))
         finally:
             os.unlink(out)
@@ -350,11 +350,12 @@ class TestStyleLayer(unittest.TestCase):
         p.render(out, **kw)
         return out
 
-    def test_default_spec_is_erj(self):
-        """不指定 spec 时就是通用版式（经研投稿体例）。"""
+    def test_default_spec_is_erj_layout(self):
+        """不指定 spec 时就是通用版式（基于经研投稿体例）。"""
         from references.style import resolve
         st = resolve()
         self.assertAlmostEqual(st.get('body_size'), 10.5)
+        self.assertEqual(st.get('body_font'), '宋体')
         self.assertEqual(st.get('abstract_font'), '仿宋')
         self.assertEqual(st.get('footnote_num_format'), 'chicago')
 
@@ -363,12 +364,11 @@ class TestStyleLayer(unittest.TestCase):
         with self.assertRaises(KeyError):
             resolve(overrides={'nope': 1})
 
-    def test_erj_spec_applied(self):
+    def test_removed_erj_alias_raises(self):
+        """erj.yaml 已删除，按名取规格必须报错而不是静默回落。"""
         from references.style import resolve
-        st = resolve(spec='erj')
-        self.assertEqual(st.get('body_font'), '宋体')
-        self.assertEqual(st.get('abstract_font'), '仿宋')
-        self.assertAlmostEqual(st.get('body_size'), 10.5)
+        with self.assertRaises(FileNotFoundError):
+            resolve(spec='erj')
 
     def test_footnote_creates_part(self):
         out = self._render(lambda p: (p.title('标题'),

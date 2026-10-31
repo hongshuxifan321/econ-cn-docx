@@ -99,8 +99,12 @@ def _find_spec_file(name):
         p = os.path.join(d, name + ".yaml")
         if os.path.exists(p):
             return p
+    avail = list_specs()
     raise FileNotFoundError(
-        "找不到规格 '%s'，可用: %s" % (name, ", ".join(list_specs()))
+        "找不到规格 '%s'；现有可用规格: %s（默认版式 base 不需要指定，"
+        "自定义规格放 %s）"
+        % (name, ", ".join(avail) if avail else "无，只有通用版式 base",
+           USER_SPEC_DIR)
     )
 
 

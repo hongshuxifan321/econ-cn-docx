@@ -41,18 +41,17 @@ p.render("论文.docx", tables_dir="tables", figures_dir="figures")   # 默认�
 
 ## 版式规格（spec）
 
-**只有一套通用版式，就是《经济研究》投稿体例（A 版）。** 其他期刊 / 学校另写一个 yaml，`extends: base` 只列差异。
+**只有一套通用版式，基于《经济研究》投稿体例（A 版）整理。** 其他期刊 / 学校另写一个 yaml，`extends: base` 只列差异。
 
 ```
-specs/base.yaml                    # 通用版式 = 《经济研究》投稿体例（默认出稿版式）
-specs/erj.yaml                     # 同 base 的别名，为兼容旧调用保留
+specs/base.yaml                    # 通用版式（基于经研投稿体例，默认出稿版式）
 ~/.dsh/econ-cn-docx/specs/*.yaml   # 你自己的规格（skill 升级不会丢）
 ```
 
 ```python
-p.render("论文.docx")                            # 不指定 → 通用版式（经研体例）
-p.render("论文.docx", spec="erj")                # 等价，别名
+p.render("论文.docx")                            # 不指定 spec → 通用版式
 p.render("论文.docx", body_size=11)              # 通用版式 + 单点覆盖
+p.render("论文.docx", spec="my-style")           # 换一份自定义规格
 p.render("论文.docx", report=True)               # 打印生效值 + 每项来源
 ```
 
@@ -65,9 +64,9 @@ p.render("论文.docx", report=True)               # 打印生效值 + 每项来
 ```python
 from references.style import Style, list_specs, save
 
-list_specs()                                                  # 可用规格
+list_specs()                                                  # 用户规格列表
 Style.load().describe()                                       # 逐项看生效值 + 来源
-save("my-erj", Style.load(overrides={"body_size": 9}))        # 存为用户规格（只写差异）
+save("my-style", Style.load(overrides={"body_size": 9}))      # 存为用户规格（只写差异）
 ```
 
 ## API

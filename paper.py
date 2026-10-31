@@ -128,7 +128,7 @@ class Paper:
            Accepts all render() kwargs (tables_dir, figures_dir, table_map,
            margin_*, body_size, heading1_size, heading2_size, spec, etc.).
 
-           spec:   规格名或 yaml 路径（"erj"、"/path/to/x.yaml"），见 specs/；
+           spec:   规格名或 yaml 路径（"base"、"/path/to/x.yaml"），见 specs/；
            style:  直接传入 Style 对象（优先级最高）；
            report: True 时打印生效参数与来源。
         """

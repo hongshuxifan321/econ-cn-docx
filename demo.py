@@ -2,8 +2,8 @@
 """econ-cn-docx 完整演示 — Python DSL。
 
 跑法：
-    python demo.py            # 通用版式 = 《经济研究》投稿体例（specs/base.yaml）
-    python demo.py erj        # 同 base 的别名，等价
+    python demo.py                     # 通用版式（基于《经济研究》投稿体例）
+    python demo.py path/to/other.yaml  # 换一份规格（首行 extends: base）
 """
 import os
 import sys

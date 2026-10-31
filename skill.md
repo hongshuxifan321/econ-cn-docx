@@ -7,18 +7,18 @@ user-invocable: true
 
 # econ-cn-docx
 
-论文排版器：`Paper` 累积内容 → 套**通用版式**（= 《经济研究》投稿体例）→ `render()` 出 docx。
+论文排版器：`Paper` 累积内容 → 套**通用版式**（基于《经济研究》投稿体例）→ `render()` 出 docx。
 
 - 完整用法与 API：[`README.md`](README.md)
 - 通用版式（字段全集 + 逐项出处，可当填空模板）：[`specs/base.yaml`](specs/base.yaml)
-- `specs/erj.yaml` 是 base 的别名，`spec="erj"` 与不写 spec 等价
+- 换别的刊 / 学校：新建 yaml，首行 `extends: base`，只列差异
 
 ## 命令
 
 ```bash
 pip install -e ~/.dsh/skills/econ-cn-docx
-python demo.py            # 通用版式（经研投稿体例）
-python demo.py erj        # 等价
+python demo.py                     # 通用版式
+python demo.py path/to/other.yaml  # 换一份规格
 ```
 
 ## 最小示例
@@ -46,7 +46,7 @@ p.h1("参考文献")                  # 识别为小标题，不编号
 p.ref("Dingel, J. I., and B. Neiman, 2020, “…”, "
       "{i:Journal of Public Economics}, 189, 104235.")
 
-p.render("论文.docx", spec="erj")
+p.render("论文.docx")             # 不写 spec = 通用版式
 ```
 
 ## 方法速查
@@ -97,7 +97,7 @@ p.render("论文.docx", spec="erj")
 from references.style import Style, list_specs, save
 list_specs()
 Style.load().describe()                              # 逐项看生效值 + 来源
-save("my-erj", Style.load(overrides={"body_size": 9}))
+save("my-style", Style.load(overrides={"body_size": 9}))
 ```
 
 `render(..., report=True)` 会打印生效参数和每项来源（默认/规格/调用参数）。
