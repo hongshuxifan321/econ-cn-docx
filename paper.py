@@ -28,7 +28,7 @@ _EXPECTED_RENDER_KWARGS = {
     "body_size", "body_line_spacing", "body_indent",
     "heading1_size", "heading2_size", "heading3_size",
     "ref_size", "ref_line_spacing", "table_font_size",
-    "preset",
+    "spec", "style", "report",
 }
 
 
@@ -51,6 +51,14 @@ class Paper:
     def keywords(self, text: str) -> None:
         """Keywords line (level 1, 楷体)。"""
         self.sections.append({"title": "关键词", "body": text, "level": 1})
+
+    def subtitle(self, text: str) -> None:
+        """副标题「——…」，居中，字体见 subtitle_font/size。"""
+        self.sections.append({"title": "", "body": f"SUBTITLE:{text}", "level": 0})
+
+    def author(self, text: str) -> None:
+        """作者姓名行，居中，字体见 author_font/size。"""
+        self.sections.append({"title": "", "body": f"AUTHOR:{text}", "level": 0})
 
     # ── headings ──────────────────────────────────────────────
 
@@ -86,9 +94,21 @@ class Paper:
 
     # ── float ─────────────────────────────────────────────────
 
-    def table(self, key: str) -> None:
-        """Insert three-line table from RTF. Prefix TABLE: added."""
-        self.sections.append({"title": "", "body": f"TABLE:{key}", "level": 0})
+    def table(self, key: str, caption: str = "") -> None:
+        """三线表。caption 非空时自动编号为「表N　caption」。"""
+        self.sections.append({"kind": "table", "key": key, "caption": caption})
+
+    def figure(self, filename: str, caption: str = "", width: float = 10) -> None:
+        """插图 + 自动编号图题「图N　caption」（图题在图下方）。"""
+        self.sections.append({"kind": "figure", "file": filename,
+                              "caption": caption, "width": width})
+
+    def footnote(self, text: str) -> None:
+        """给上一段（通常是标题）挂脚注，页下注、每页重新编号。
+
+        标记样式由 spec 的 footnote_num_format 决定（chicago → *、†、‡）。
+        """
+        self.sections.append({"kind": "footnote", "text": text})
 
     def image(self, filename: str) -> None:
         """Insert image (centred, 10 cm wide). Prefix IMAGE: added."""
@@ -106,7 +126,11 @@ class Paper:
         """Render accumulated sections to .docx.
 
            Accepts all render() kwargs (tables_dir, figures_dir, table_map,
-           margin_*, body_size, heading1_size, heading2_size, preset, etc.).
+           margin_*, body_size, heading1_size, heading2_size, spec, etc.).
+
+           spec:   规格名或 yaml 路径（"erj"、"/path/to/x.yaml"），见 specs/；
+           style:  直接传入 Style 对象（优先级最高）；
+           report: True 时打印生效参数与来源。
         """
         unknown = set(kwargs) - _EXPECTED_RENDER_KWARGS
         if unknown:

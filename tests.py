@@ -322,26 +322,86 @@ class TestRenderFromDicts(unittest.TestCase):
         finally:
             os.unlink(out)
 
-    def test_preset_journal(self):
-        sections = [{'title': '一、引言', 'body': '正文。', 'level': 1}]
+    def test_spec_erj(self):
+        sections = [{'title': '引　言', 'body': '正文。', 'level': 1}]
         with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as f:
             out = f.name
         try:
-            render_from_dicts(sections, out, preset='journal')
+            render_from_dicts(sections, out, spec='erj')
             self.assertTrue(os.path.exists(out))
         finally:
             os.unlink(out)
 
-    def test_preset_invalid_raises(self):
-        sections = [{'title': '', 'body': 'x', 'level': 0}]
+    def test_spec_unknown_field_raises(self):
+        from references.style import resolve
+        with self.assertRaises(KeyError):
+            resolve(overrides={'no_such_key': 1})
+
+
+class TestStyleLayer(unittest.TestCase):
+    """spec 层 + 新渲染能力。"""
+
+    def _render(self, build, **kw):
+        p = Paper()
+        build(p)
         with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as f:
             out = f.name
-        try:
-            with self.assertRaises(ValueError):
-                render_from_dicts(sections, out, preset='nonexistent')
-        finally:
-            if os.path.exists(out):
-                os.unlink(out)
+        self.addCleanup(lambda: os.path.exists(out) and os.unlink(out))
+        p.render(out, **kw)
+        return out
+
+    def test_default_spec_is_base(self):
+        from references.style import resolve
+        st = resolve()
+        self.assertEqual(st.get('body_size'), 12)
+
+    def test_unknown_override_raises(self):
+        from references.style import resolve
+        with self.assertRaises(KeyError):
+            resolve(overrides={'nope': 1})
+
+    def test_erj_spec_applied(self):
+        from references.style import resolve
+        st = resolve(spec='erj')
+        self.assertEqual(st.get('body_font'), '宋体')
+        self.assertEqual(st.get('abstract_font'), '仿宋')
+        self.assertAlmostEqual(st.get('body_size'), 10.5)
+
+    def test_footnote_creates_part(self):
+        out = self._render(lambda p: (p.title('标题'),
+                                      p.footnote('作者信息*脚注。'),
+                                      p.para('正文。')))
+        import zipfile
+        names = zipfile.ZipFile(out).namelist()
+        self.assertIn('word/footnotes.xml', names)
+
+    def test_auto_numbering(self):
+        out = self._render(lambda p: (p.h1('引言'), p.h1('结论'),
+                                      p.h2('基准结果')))
+        texts = [q.text for q in Document(out).paragraphs if q.text.strip()]
+        self.assertEqual(texts, ['一、引言', '二、结论', '（一）基准结果'])
+
+    def test_existing_number_not_doubled(self):
+        out = self._render(lambda p: p.h1('一、引言'))
+        texts = [q.text for q in Document(out).paragraphs if q.text.strip()]
+        self.assertEqual(texts, ['一、引言'])
+
+    def test_ref_heading_not_numbered(self):
+        out = self._render(lambda p: (p.h1('结论'), p.h1('参考文献'),
+                                      p.ref('张三，2020。')))
+        texts = [q.text for q in Document(out).paragraphs if q.text.strip()]
+        self.assertIn('参考文献', texts)
+        self.assertNotIn('二、参考文献', texts)
+
+    def test_ref_italic_marker(self):
+        out = self._render(lambda p: p.ref('Koopman, 2010, {i:NBER Working Paper}, 16426.'))
+        runs = [r for q in Document(out).paragraphs for r in q.runs]
+        self.assertTrue(any(r.italic and 'NBER' in r.text for r in runs))
+
+    def test_inline_footnote_marker(self):
+        import zipfile
+        out = self._render(lambda p: p.para('正文中间{fn:脚注内容。}继续。'))
+        self.assertIn('word/footnotes.xml', zipfile.ZipFile(out).namelist())
 
 
 class TestPaperClass(unittest.TestCase):

@@ -1,0 +1,111 @@
+# 通用版式（base）— econ-cn-docx 的默认层
+#
+# 这一份只求「排得出来、看着正常」，不代表任何期刊的投稿要求。
+# 有具体目标期刊时，另写一个 yaml（extends: base），只列差异。
+#
+# 改哪个字段 = 改哪一处排版。字段名的左半截就是读者看到的元素：
+#   title/author/abstract/keyword/heading1-3/body/table/figure/ref/page_number
+#
+# 行距两种写法：数字 = 倍数（1.5 = 1.5 倍行距）；字符串 "16pt" = 固定值 16 磅。
+
+# ── 页面（A4，单位 cm）──
+margin_top: 2.54
+margin_bottom: 2.54
+margin_left: 3.18
+margin_right: 2.54
+
+# ── 标题块 ──
+title_size: 18
+title_font: 黑体
+title_bold: true
+subtitle_size: 14
+subtitle_font: 黑体
+subtitle_bold: false
+
+author_size: 12
+author_font: 宋体
+author_bold: false
+
+# ── 摘要 / 关键词 ──
+abstract_label: 摘要
+abstract_label_font: 黑体
+abstract_label_size: 10.5
+abstract_font: 楷体
+abstract_size: 10.5
+abstract_indent: 0
+
+keyword_label: 关键词
+keyword_label_font: 黑体
+keyword_label_size: 10.5
+keyword_font: 楷体
+keyword_size: 10.5
+
+# ── 各级标题 ──
+heading1_size: 16
+heading1_font: 黑体
+heading1_bold: true
+heading1_align: center
+
+heading2_size: 14
+heading2_font: 黑体
+heading2_bold: true
+heading2_align: left
+
+heading3_size: 10.5
+heading3_font: 黑体
+heading3_bold: true
+heading3_align: center
+
+# ── 正文 ──
+body_size: 12
+body_font: 宋体
+body_space_before: 6     # 段前距（pt）
+body_space_after: 6      # 段后距（pt）
+body_line_spacing: 1.5
+body_indent: 24
+
+# ── 表格（三线表，线宽单位 1/8 pt）──
+table_font_size: 9
+table_font: 宋体
+table_header_font: 黑体
+table_header_bold: true
+table_rule_top: 12
+table_rule_mid: 8
+table_rule_bottom: 12
+table_title_size: 10.5
+table_title_font: 黑体
+table_title_bold: true
+table_note_size: 9
+table_note_font: 宋体
+
+# ── NOTE: 表注行 ──
+note_size: 9
+note_font: 宋体
+note_italic: true
+
+# ── 参考文献 ──
+ref_size: 10
+ref_font: 宋体
+ref_line_spacing: 1.25
+ref_indent: 0
+
+# ── 页码 ──
+page_number: false
+page_number_size: 9
+page_number_font: 宋体
+
+# ── 自动编号 ──
+auto_number: true        # h1 → 「一、」，h2 → 「（一）」；已有编号则跳过
+equation_number: false   # 公式右端 (1)(2)…
+
+# ── 参考文献标题（不是一级标题样式）──
+ref_heading_font: 黑体
+ref_heading_size: 10.5
+ref_heading_bold: true
+ref_heading_align: left
+
+# ── 脚注 ──
+footnote_font: 宋体
+footnote_size: 7.5
+footnote_per_page: true  # 每页重新编号
+footnote_num_format: decimal   # decimal 1,2,3 / decimalEnclosedCircle ①②③ / chicago *†‡

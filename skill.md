@@ -48,7 +48,10 @@ p.render("论文.docx")
 |------|------|
 | `title(text)` | 18pt 黑体居中加粗 |
 | `abstract(text)` | 标签"摘要："黑体 10.5pt 加粗 + 楷体正文，顶格单倍行距 |
-| `keywords(text)` | 标签"关键词："黑体 10.5pt 加粗 + 楷体正文 |
+| `keywords(text)` | 标签"关键词："（字体/字号见 spec）+ 正文 |
+| `subtitle(text)` | 副标题「——…」，居中（见 `subtitle_font/size`） |
+| `author(text)` | 作者姓名行，居中（见 `author_font/size`） |
+| `footnote(text)` | 给**上一段**挂脚注：页下注、每页重新编号（首页作者信息就挂在标题上）；标记样式见 spec 的 `footnote_num_format`（`chicago` → `*`、`†`、`‡`） |
 
 ### 标题
 
@@ -62,17 +65,19 @@ p.render("论文.docx")
 
 | 方法 | 排版 |
 |------|------|
-| `para(text)` | 12pt 宋体两端对齐，首行缩进 24pt，1.5 倍行距。`\n\n` 分多段 |
-| `equation(latex)` | OMML 行间公式，居中 |
-| `note(text)` | 9pt 宋体斜体（表注） |
+| `para(text)` | 正文段落，两端对齐、首行缩进（样式见 spec） |
+| `para_no_indent(text)` | 正文段落，不缩进 |
+| `equation(latex)` | OMML 行间公式，居中；`equation_number: true` 时右端自动编号 (1)(2)… |
+| `note(text)` | 表注行（默认 9pt 宋体斜体，见 spec） |
 
 ### 浮动体
 
 | 方法 | 排版 |
 |------|------|
-| `table(key)` | 解析 RTF → 三线表（顶线 12/底线 12/表头下线 8，单位 1/8 pt；自动采用 RTF 中的列宽） |
-| `image(filename)` | 嵌入图片，居中，宽 10 cm |
-| `image("fig.png:14")` | 嵌入图片，居中，宽 14 cm（`文件名:宽度cm` 语法） |
+| `table(key, caption="")` | 解析 RTF → 三线表；给 caption 时自动编号「表1　…」并忽略 RTF 自带标题 |
+| `figure(file, caption="", width=10)` | 插图 + 自动编号图题「图1　…」（图题在图下方，图与题不分页） |
+| `image(filename)` | 只管插图，不编号（需要手写 `h3()` 做图题时才用） |
+| `image("fig.png:14")` | 嵌入图片，宽 14 cm（`文件名:宽度cm` 语法） |
 
 ### 参考文献
 
@@ -123,24 +128,34 @@ p.render(output="论文.docx",
 
 - `H1`/`H2`/`H3`/`H4`/`H1a`/`H1b` 开头且后接标点或空格的段落 → 加粗正文（`H1N1`、`H2O` 等不误判）
 - `word_{subscript}` 模式自动检测并渲染为内联 OMML 公式
+- 行内标记（`para()` 与 `ref()` 都支持，花括号内不能再嵌套花括号）：
+
+| 写法 | 效果 |
+|------|------|
+| `{i:American Economic Review}` | 斜体（参考文献里的外文期刊名） |
+| `{b:重点}` | 加粗 |
+| `{fn:脚注内容}` | 就地插脚注：正文中间也能挂，不必另起一段 |
+
+```python
+p.para("其中，x_{it} 为产出{fn:控制变量见附录 A。}，均取对数。")
+p.ref("Koopman, R., et al., 2010, “Give Credit…”, {i:NBER Working Paper}, 16426.")
+```
 
 ## 图表标题约定（避免双标题）
 
-- RTF 表文件自带标题时（esttab 输出第一行），`TABLE:` 渲染会自动插入居中黑体标题——**此时不要再为该表格配 `h3()`**，否则表格上方出现两个标题
-- 图片没有内置标题，`IMAGE:` 后必须配 `h3()` 作为图题
+- 用 `table(key, caption=...)` / `figure(file, caption=...)` 时编号与标题由渲染器生成，**不要再手写 `h3()`**
+- 只有用底层的 `image()` 才需要自己配 `h3()` 当图题
+- RTF 自带标题的表格，不传 caption 就沿用 RTF 标题；传了 caption 则以 caption 为准（避免双标题）
 
 ## 字体体系
 
-中文排版三属性设置（`w:eastAsia` / `w:hAnsi` / `w:ascii`）：
+中文排版三属性设置（`w:eastAsia` / `w:hAnsi` / `w:ascii`）。
+各元素字体由 spec 决定（`body_font`、`heading1_font`、`abstract_font`、`table_font` …），
+默认值见 `specs/base.yaml`；西文一律 Times New Roman。
 
-| 元素 | 字体 |
-|------|------|
-| 正文 | 宋体 / Times New Roman |
-| 标题 | 黑体 / Times New Roman |
-| 摘要/关键词 | 楷体 / Times New Roman |
-| 表格 | 宋体 / Times New Roman（9pt） |
+## 默认值
 
-## 默认排版参数（毕业论文）
+以下为 `specs/base.yaml` 的中性默认值，任何期刊要求都用 `spec` 覆盖：
 
 | 参数 | 默认值 |
 |------|--------|
@@ -152,23 +167,44 @@ p.render(output="论文.docx",
 | 图表标题 | 10.5pt |
 | 参考文献 | 10pt / 1.25× |
 
-所有排版参数通过 `render()` kwargs 覆盖。
+全部字段都可在 spec 或 `render()` kwargs 里覆盖。
 
-## 排版预设（preset）
+## 版式规格（spec）
 
-三套预设，`preset=` 一行切换；显式传入的参数覆盖预设值：
+只有一套通用版式 `specs/base.yaml`；具体刊/学校要求另写一个 yaml，`extends: base` 只列差异。
 
-| 预设 | 场景 | 差异 |
-|------|------|------|
-| `preset="thesis"`（默认） | 毕业论文 | 页边距 2.54/2.54/3.18/2.54，正文 12pt/1.5×，一级标题 16pt |
-| `preset="journal"` | 期刊投稿 | 左页边距 2.54，正文 10.5pt/缩进 21pt，一级标题 14pt，参考文献 9pt |
-| `preset="working"` | 工作论文 | 左页边距 2.54，正文 12pt/1.5×，一级标题 15pt，二级 13pt |
+```
+specs/base.yaml                    # 通用版式：中性默认值，不代表任何期刊
+specs/erj.yaml                     # 例：《经济研究》投稿体例
+~/.dsh/econ-cn-docx/specs/*.yaml   # 用户自定义规格（skill 升级不会丢）
+```
 
 ```python
-p.render("论文.docx", preset="journal")
+p.render("论文.docx")                            # 不指定 → specs/base.yaml
+p.render("论文.docx", spec="erj")                # 按规格名
+p.render("论文.docx", spec="erj", body_size=11)  # 规格 + 单点覆盖
+p.render("论文.docx", spec="erj", report=True)   # 打印生效值 + 每项来源
+```
 
-# 预设基础上覆盖个别参数
-p.render("论文.docx", preset="journal", body_size=11)
+- 字段清单与含义见 `specs/base.yaml`（带注释，可直接当填空模板）
+- 行距写数字 = 倍数；写 `"16pt"` = 固定值
+- 自动编号：`h1("引言")` → 「一、引言」，`h2("基准结果")` → 「（一）基准结果」；已有编号则跳过（`auto_number: false` 关闭）
+- 参考文献标题走 `ref_heading_*`（左对齐小标题），不套一级标题
+- 脚注：`footnote_per_page`（每页重编号）、`footnote_num_format`（`decimal` / `decimalEnclosedCircle` ①②③ / `chicago` `*†‡`）、`footnote_font/size`
+- 注意：脚注编号格式是**整篇统一**的，做不出「首页 `*`、正文 ①②③」这种混排；`chicago` 下首页第一条就是 `*`，同页第二条是 `†`
+
+```python
+from references.style import Style, list_specs, save, load_spec
+list_specs()                                             # 可用规格
+Style.load(spec="erj").describe()                        # 逐项看值与来源
+save("my-erj", Style.load(spec="erj", overrides={"body_size": 9}))  # 存为用户规格
+```
+
+预览（docx → pdf → PNG，用于逐轮比对）：
+
+```python
+from references.preview import preview
+preview("论文.docx")        # → preview/p1.png, p2.png …
 ```
 
 ## 旧版兼容：JSON 入口（仍可用）

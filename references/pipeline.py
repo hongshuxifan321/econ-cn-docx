@@ -15,6 +15,65 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from lxml import etree
 
+try:                                     # pipeline 作为包内模块导入
+    from .style import DEFAULTS, Style, resolve
+    from .footnotes import add_footnote, set_footnote_props
+except ImportError:                      # 直接按文件运行时的兜底
+    from references.style import DEFAULTS, Style, resolve
+    from references.footnotes import add_footnote, set_footnote_props
+
+
+def _cn_num(n):
+    """1 → 一、11 → 十一（到九十九够用）。"""
+    d = "零一二三四五六七八九"
+    if n <= 10:
+        return "十" if n == 10 else d[n]
+    if n < 20:
+        return "十" + d[n % 10]
+    if n < 100:
+        return d[n // 10] + "十" + (d[n % 10] if n % 10 else "")
+    return str(n)
+
+
+def _spacing(v):
+    """行距：数字 = 倍数；"16pt" / "16磅" / "固定16" = 固定值。"""
+    if isinstance(v, str):
+        m = re.match(r"^\s*(?:固定|exact)?\s*([\d.]+)\s*(?:pt|磅)?\s*$", v)
+        if m:
+            return Pt(float(m.group(1)))
+    return v
+
+
+def _align(name):
+    return {
+        "center": WD_ALIGN_PARAGRAPH.CENTER,
+        "left": WD_ALIGN_PARAGRAPH.LEFT,
+        "right": WD_ALIGN_PARAGRAPH.RIGHT,
+        "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
+    }.get(name, WD_ALIGN_PARAGRAPH.LEFT)
+
+
+def _add_page_number(doc, font="宋体", size=9):
+    """页脚居中页码（PAGE 域）。"""
+    sec = doc.sections[0]
+    p = sec.footer.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run()
+    set_cn_font(run, font, Pt(size))
+    fld_begin = OxmlElement("w:fldChar")
+    fld_begin.set(qn("w:fldCharType"), "begin")
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = " PAGE "
+    fld_sep = OxmlElement("w:fldChar")
+    fld_sep.set(qn("w:fldCharType"), "separate")
+    txt = OxmlElement("w:t")
+    txt.text = "1"
+    fld_end = OxmlElement("w:fldChar")
+    fld_end.set(qn("w:fldCharType"), "end")
+    for el in (fld_begin, instr, fld_sep, txt, fld_end):
+        run._r.append(el)
+
 # ═══════════════════════════════════════════════════════════════
 # Chinese quote repair
 # ═══════════════════════════════════════════════════════════════
@@ -406,25 +465,46 @@ def _render_math_content(parent, text):
         i += 1
 
 
-def _add_display_equation(doc, latex_str):
-    """Insert centred OMML display equation (double-click to edit)."""
+def _add_display_equation(doc, latex_str, number=None, tab_pos=None):
+    """Insert centred OMML display equation; 可选右端 (n) 编号。"""
+    from docx.enum.text import WD_TAB_ALIGNMENT
+
     omath = _m('oMath')
     _render_math_content(omath, latex_str)
-    omath_para = etree.Element(f'{{{MATH_NS}}}oMathPara')
-    omath_para.append(omath)
     p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.paragraph_format.space_before = Pt(4)
     p.paragraph_format.space_after = Pt(4)
+
+    if number is not None and tab_pos is not None:
+        # 带编号：左端 TAB 到居中制表位，公式用行内 OMML，末尾 TAB 到右对齐位放 (n)
+        p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        p.paragraph_format.tab_stops.add_tab_stop(int(tab_pos / 2),
+                                                  WD_TAB_ALIGNMENT.CENTER)
+        p.paragraph_format.tab_stops.add_tab_stop(tab_pos, WD_TAB_ALIGNMENT.RIGHT)
+        p.add_run("\t")
+        p._p.append(omath)
+        r = p.add_run("\t(%d)" % number)
+        set_cn_font(r, "宋体", Pt(10.5))
+        return
+
+    # 无编号：oMathPara 整段居中
+    omath_para = etree.Element(f'{{{MATH_NS}}}oMathPara')
+    para_pr = etree.SubElement(omath_para, f'{{{MATH_NS}}}oMathParaPr')
+    jc = etree.SubElement(para_pr, f'{{{MATH_NS}}}jc')
+    jc.set(f'{{{MATH_NS}}}val', 'center')
+    omath_para.append(omath)
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p._p.append(omath_para)
 
 
 def _add_inline_omath(paragraph, math_text):
-    """Add inline OMML run inside a paragraph."""
+    """Add inline OMML into a paragraph.
+
+    m:oMath 必须是 w:p 的直接子元素；塞进 w:r 会让 Word 静默丢弃（表现为空白）。
+    """
     omath = _m('oMath')
     _render_math_content(omath, math_text)
-    run = paragraph.add_run()
-    run._r.append(omath)
+    paragraph._p.append(omath)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -616,20 +696,22 @@ def _set_cell_border(cell, **kwargs):
     tcPr.append(tcBorders)
 
 
-def _add_rtf_table(doc, filepath, font_size=Pt(9)):
-    """Parse esttab RTF and insert as 三线表."""
+def _add_rtf_table(doc, filepath, font_size=Pt(9), opts=None, with_title=True):
+    """Parse esttab RTF and insert as 三线表（with_title=False 时忽略 RTF 自带标题）。"""
+    opts = opts or {}
     headers, rows, notes, title, col_widths = _parse_rtf_table(filepath)
     if headers is None:
         return
 
     # table title from RTF
-    if title:
+    if title and with_title:
         p = doc.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         p.paragraph_format.space_before = Pt(10)
         p.paragraph_format.space_after = Pt(4)
         r = p.add_run(_fix_quotes(title))
-        set_cn_font(r, "黑体", Pt(10.5), bold=True)
+        set_cn_font(r, opts.get("title_font", "黑体"),
+                    Pt(opts.get("title_size", 10.5)), bold=opts.get("title_bold", True))
 
     all_rows = headers + rows
     ncols = len(headers[0])
@@ -649,19 +731,23 @@ def _add_rtf_table(doc, filepath, font_size=Pt(9)):
             cell = table.cell(i, j)
             is_header = (i == 0)
             _set_cell_font(cell, val if val else "",
-                           font_name="黑体" if is_header else "宋体",
+                           font_name=(opts.get("header_font", "黑体") if is_header
+                                      else opts.get("font", "宋体")),
                            size=font_size,
-                           bold=is_header,
+                           bold=(opts.get("header_bold", True) if is_header else False),
                            alignment=WD_ALIGN_PARAGRAPH.CENTER)
 
     # 三线 borders
     for j in range(ncols):
         _set_cell_border(table.cell(0, j),
-                         top={"sz": "12", "val": "single", "color": "000000"},
-                         bottom={"sz": "8", "val": "single", "color": "000000"})
+                         top={"sz": str(opts.get("rule_top", 12)), "val": "single",
+                              "color": "000000"},
+                         bottom={"sz": str(opts.get("rule_mid", 8)), "val": "single",
+                                 "color": "000000"})
     for j in range(ncols):
         _set_cell_border(table.cell(nrows - 1, j),
-                         bottom={"sz": "12", "val": "single", "color": "000000"})
+                         bottom={"sz": str(opts.get("rule_bottom", 12)), "val": "single",
+                                 "color": "000000"})
 
     if notes:
         p = doc.add_paragraph()
@@ -669,7 +755,7 @@ def _add_rtf_table(doc, filepath, font_size=Pt(9)):
         p.paragraph_format.space_after = Pt(6)
         p.paragraph_format.line_spacing = 1.0
         r = p.add_run(_fix_quotes(notes))
-        set_cn_font(r, "宋体", Pt(9))
+        set_cn_font(r, opts.get("note_font", "宋体"), Pt(opts.get("note_size", 9)))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -683,9 +769,44 @@ _MATH_PATTERN = re.compile(
 )
 
 
+_INLINE_MARK = re.compile(r"\{(i|b|fn):([^{}]*)\}")
+
+
+def _iter_inline(text):
+    """把文本切成 [('text'|'i'|'b'|'fn', 内容)]。
+
+    `{i:…}` 斜体、`{b:…}` 加粗、`{fn:…}` 就地插脚注。
+    花括号内不支持再嵌套花括号。
+    """
+    pos = 0
+    for m in _INLINE_MARK.finditer(text):
+        if m.start() > pos:
+            yield ("text", text[pos:m.start()])
+        yield (m.group(1), m.group(2))
+        pos = m.end()
+    if pos < len(text):
+        yield ("text", text[pos:])
+
+
+def _add_runs_with_math(p, text, font, size):
+    """普通文本段：识别内联公式后写入 runs。"""
+    parts = _MATH_PATTERN.split(text)
+    for i, part in enumerate(parts):
+        if not part:
+            continue
+        if i % 2 == 0:
+            r = p.add_run(_fix_quotes(part))
+            set_cn_font(r, font, size)
+        else:
+            if '\\' in part:
+                print(f"[cn_docx] WARNING: 内联公式含未支持命令: {part!r} — 请改用 equation()")
+            _add_inline_omath(p, part)
+
+
 def _add_body_paragraph(doc, text, size=Pt(12), indent=Pt(24),
-                        line_spacing=1.5, space_before=Pt(6), space_after=Pt(6)):
-    """Body paragraph: justified, first-line indent, inline math detection."""
+                        line_spacing=1.5, space_before=Pt(6), space_after=Pt(6),
+                        font="宋体", fn_font="宋体", fn_size=7.5):
+    """Body paragraph: justified, first-line indent, inline math + 行内标记。"""
     p = doc.add_paragraph()
     p.paragraph_format.first_line_indent = indent
     p.paragraph_format.line_spacing = line_spacing
@@ -693,17 +814,16 @@ def _add_body_paragraph(doc, text, size=Pt(12), indent=Pt(24),
     p.paragraph_format.space_after = space_after
     p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
 
-    parts = _MATH_PATTERN.split(text)
-    for i, part in enumerate(parts):
-        if not part:
-            continue
-        if i % 2 == 0:
-            r = p.add_run(_fix_quotes(part))
-            set_cn_font(r, "宋体", size)
+    for kind, seg in _iter_inline(text):
+        if kind == "text":
+            _add_runs_with_math(p, seg, font, size)
+        elif kind == "fn":
+            add_footnote(p, doc, seg, font=fn_font, size=fn_size)
         else:
-            if '\\' in part:
-                print(f"[cn_docx] WARNING: 内联公式含未支持命令: {part!r} — 请改用 equation()")
-            _add_inline_omath(p, part)
+            r = p.add_run(_fix_quotes(seg))
+            set_cn_font(r, font, size, bold=(kind == "b"))
+            if kind == "i":
+                r.italic = True
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -721,26 +841,7 @@ def render(json_path, output="论文.docx", **kwargs):
     render_from_dicts(sections, output, **kwargs)
 
 
-DEFAULTS = dict(
-    tables_dir="tables", figures_dir="figures", table_map=None,
-    margin_top=2.54, margin_bottom=2.54, margin_left=3.18, margin_right=2.54,
-    body_size=12, body_line_spacing=1.5, body_indent=24,
-    heading1_size=16, heading2_size=14, heading3_size=10.5,
-    ref_size=10, ref_line_spacing=1.25, table_font_size=9,
-)
-
-PRESETS = {
-    "thesis": {},  # 毕业论文（默认）
-    "journal": {   # 期刊投稿
-        "margin_left": 2.54, "body_size": 10.5, "body_indent": 21,
-        "heading1_size": 14, "heading2_size": 12, "ref_size": 9,
-    },
-    "working": {   # 工作论文
-        "margin_left": 2.54, "body_size": 12, "body_line_spacing": 1.5,
-        "body_indent": 24, "heading1_size": 15, "heading2_size": 13,
-        "ref_size": 10,
-    },
-}
+# 参数默认值与预设已移至 references/style.py（单一事实来源）
 
 
 def _stamp_doc_properties(doc):
@@ -772,31 +873,83 @@ def _stamp_doc_properties(doc):
             break
 
 
-def render_from_dicts(sections, output="论文.docx", *, preset="thesis", **kwargs):
+def render_from_dicts(sections, output="论文.docx", *, spec=None,
+                      style=None, report=False, **kwargs):
     """Render a list of section dicts → formatted .docx.
 
        Each section dict: {"title": str, "body": str, "level": int}
        Same format as paper_content.json, but passed as a Python list.
 
-       preset: "thesis"（毕业论文，默认）/ "journal"（期刊投稿）/
-               "working"（工作论文）。显式传入的 kwargs 覆盖 preset 值。
-       可用 kwargs：tables_dir, figures_dir, table_map, margin_top/bottom/left/right,
-       body_size, body_line_spacing, body_indent, heading1_size/2/3,
-       ref_size, ref_line_spacing, table_font_size。
+       spec: 规格名或 yaml 路径（默认 "base"，见 specs/base.yaml）；
+             显式传入的 kwargs 覆盖 spec 里的同名项。
+       可用 kwargs：tables_dir, figures_dir, table_map, 以及 specs/base.yaml
+       中的任意字段（margin_*, body_size, heading1_size, table_font …）。
     """
-    if preset not in PRESETS:
-        raise ValueError(f"未知 preset: {preset!r}，可选 {list(PRESETS)}")
-    p = {**DEFAULTS, **PRESETS[preset], **kwargs}
+    if style is not None:
+        st = style if isinstance(style, Style) else Style(style)
+    else:
+        st = resolve(spec=spec, overrides=kwargs)
+    if report:
+        print(st.describe())
+    p = st.to_params()
     tables_dir, figures_dir, table_map = p["tables_dir"], p["figures_dir"], p["table_map"]
     margin_top, margin_bottom = p["margin_top"], p["margin_bottom"]
     margin_left, margin_right = p["margin_left"], p["margin_right"]
-    body_size, body_line_spacing, body_indent = (p["body_size"], p["body_line_spacing"], p["body_indent"])
+    body_size, body_line_spacing, body_indent = (
+        p["body_size"], _spacing(p["body_line_spacing"]), p["body_indent"])
     heading1_size, heading2_size, heading3_size = (p["heading1_size"], p["heading2_size"], p["heading3_size"])
-    ref_size, ref_line_spacing = p["ref_size"], p["ref_line_spacing"]
+    ref_size, ref_line_spacing = p["ref_size"], _spacing(p["ref_line_spacing"])
     table_font_size = p["table_font_size"]
+
+    # ── 字体与元素级字号（Style 层）──
+    f_title, size_title = p["title_font"], Pt(p["title_size"])
+    f_sub, size_sub = p["subtitle_font"], Pt(p["subtitle_size"])
+    f_abs_lbl, size_abs_lbl = p["abstract_label_font"], Pt(p["abstract_label_size"])
+    f_abs, size_abs = p["abstract_font"], Pt(p["abstract_size"])
+    f_kw_lbl, size_kw_lbl = p["keyword_label_font"], Pt(p["keyword_label_size"])
+    f_kw, size_kw = p["keyword_font"], Pt(p["keyword_size"])
+    f_body = p["body_font"]
+    h1 = (p["heading1_font"], Pt(p["heading1_size"]), p["heading1_bold"], _align(p["heading1_align"]))
+    h2 = (p["heading2_font"], Pt(p["heading2_size"]), p["heading2_bold"], _align(p["heading2_align"]))
+    h3 = (p["heading3_font"], Pt(p["heading3_size"]), p["heading3_bold"], _align(p["heading3_align"]))
+    f_ref = p["ref_font"]
+    f_note, size_note, note_italic = p["note_font"], Pt(p["note_size"]), p["note_italic"]
+    title_bold = p["title_bold"]
+    subtitle_bold = p["subtitle_bold"]
+    f_author, size_author, author_bold = (
+        p["author_font"], Pt(p["author_size"]), p["author_bold"])
+    abstract_label, keyword_label = p["abstract_label"], p["keyword_label"]
+    abstract_indent = Pt(p["abstract_indent"])
+    abstract_ls = _spacing(p["abstract_line_spacing"]) if p.get("abstract_line_spacing") else 1.0
+    ref_indent = p["ref_indent"]
+    auto_number = p["auto_number"]
+    eq_number = p["equation_number"]
+    ref_head = dict(font=p["ref_heading_font"], size=Pt(p["ref_heading_size"]),
+                    bold=p["ref_heading_bold"], align=_align(p["ref_heading_align"]))
+    fn_font, fn_size, fn_per_page = (
+        p["footnote_font"], p["footnote_size"], p["footnote_per_page"])
+    content_w = Cm(21.0 - margin_left - margin_right)
+    body_sp_before = Pt(p["body_space_before"])
+    body_sp_after = Pt(p["body_space_after"])
+
+    h1_no = h2_no = eq_no = fig_no = tab_no = 0
+
+    table_opts = dict(
+        font=p["table_font"], header_font=p["table_header_font"],
+        header_bold=p["table_header_bold"],
+        rule_top=p["table_rule_top"], rule_mid=p["table_rule_mid"],
+        rule_bottom=p["table_rule_bottom"],
+        title_font=p["table_title_font"], title_size=p["table_title_size"],
+        title_bold=p["table_title_bold"],
+        note_font=p["table_note_font"], note_size=p["table_note_size"],
+    )
 
     doc = Document()
     _stamp_doc_properties(doc)
+
+    if p["page_number"]:
+        _add_page_number(doc, p["page_number_font"], p["page_number_size"])
+    set_footnote_props(doc, p["footnote_num_format"], fn_per_page)
 
     # page setup
     for section in doc.sections:
@@ -811,7 +964,7 @@ def render_from_dicts(sections, output="论文.docx", *, preset="thesis", **kwar
     style = doc.styles['Normal']
     style.font.name = 'Times New Roman'
     style.font.size = Pt(body_size)
-    style.element.rPr.rFonts.set(qn('w:eastAsia'), '宋体')
+    style.element.rPr.rFonts.set(qn('w:eastAsia'), p["body_font"])
     style.paragraph_format.line_spacing = body_line_spacing
 
     # resolve table paths
@@ -829,8 +982,75 @@ def render_from_dicts(sections, output="论文.docx", *, preset="thesis", **kwar
     # ---- loop ----
     for sec in sections:
         title = _fix_quotes(sec.get("title", ""))
+        raw_title = title          # 编号前的原标题，用于分支判断
         body = _fix_quotes(sec.get("body", ""))
         level = sec.get("level", 0)
+        kind = sec.get("kind")
+
+        # ---- 结构化内容（脚注 / 图 / 表）----
+        if kind == "footnote":
+            if doc.paragraphs:
+                add_footnote(doc.paragraphs[-1], doc, sec.get("text", ""),
+                             font=fn_font, size=fn_size)
+            continue
+
+        if kind == "figure":
+            fig_no += 1
+            fp = os.path.join(figures_dir, sec.get("file", ""))
+            if os.path.exists(fp):
+                pp = doc.add_paragraph()
+                pp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                pp.paragraph_format.line_spacing = 1.0
+                pp.paragraph_format.keep_with_next = True
+                pp.add_run().add_picture(fp, width=Cm(float(sec.get("width") or 10)))
+            else:
+                print(f"[cn_docx] WARNING: image file not found: {fp}")
+            cap = sec.get("caption")
+            if cap:
+                cp = doc.add_paragraph()
+                cp.alignment = h3[3]
+                cp.paragraph_format.space_before = Pt(6)
+                cp.paragraph_format.space_after = Pt(4)
+                cp.paragraph_format.line_spacing = 1.0
+                cr = cp.add_run("图%d　%s" % (fig_no, _fix_quotes(cap)))
+                set_cn_font(cr, h3[0], h3[1], bold=h3[2])
+            continue
+
+        if kind == "table":
+            tab_no += 1
+            cap = sec.get("caption")
+            if cap:
+                cp = doc.add_paragraph()
+                cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                cp.paragraph_format.space_before = Pt(10)
+                cp.paragraph_format.space_after = Pt(4)
+                cp.paragraph_format.line_spacing = 1.0
+                cr = cp.add_run("表%d　%s" % (tab_no, _fix_quotes(cap)))
+                set_cn_font(cr, table_opts["title_font"],
+                            Pt(table_opts["title_size"]),
+                            bold=table_opts["title_bold"])
+            fp = _resolve_table(sec.get("key", ""))
+            if os.path.exists(fp):
+                _add_rtf_table(doc, fp, font_size=Pt(table_font_size),
+                               opts=table_opts,
+                               with_title=not cap)
+            else:
+                print(f"[cn_docx] WARNING: table file not found: {fp}")
+            continue
+
+        # ---- 自动编号（已有编号则跳过）----
+        if (auto_number and title and level in (1, 2)
+                and raw_title not in ("摘要", "关键词", "Keywords",
+                                      "参考文献", "References")):
+            if level == 1:
+                h1_no += 1
+                h2_no = 0
+                if not re.match(r"^[一二三四五六七八九十]+、", title):
+                    title = "%s、%s" % (_cn_num(h1_no), title)
+            else:
+                h2_no += 1
+                if not re.match(r"^（[一二三四五六七八九十]+）", title):
+                    title = "（%s）%s" % (_cn_num(h2_no), title)
 
         # --- title block (level 0 + has title + not abstract/keywords) ---
         if level == 0 and title and title not in ('关键词', 'Keywords') \
@@ -838,79 +1058,99 @@ def render_from_dicts(sections, output="论文.docx", *, preset="thesis", **kwar
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p.paragraph_format.space_after = Pt(4)
+            p.paragraph_format.line_spacing = 1.0
             r = p.add_run(title)
-            set_cn_font(r, "黑体", Pt(18), bold=True)
+            set_cn_font(r, f_title, size_title, bold=title_bold)
             if body:
                 p2 = doc.add_paragraph()
                 p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 p2.paragraph_format.space_after = Pt(12)
+                p2.paragraph_format.line_spacing = 1.0
                 r2 = p2.add_run(body)
-                set_cn_font(r2, "黑体", Pt(14))
+                set_cn_font(r2, f_sub, size_sub)
                 body = ""
 
         # --- equation ---
         elif body.startswith('EQUATION:'):
             eq = body.replace('EQUATION:', '').strip()
-            _add_display_equation(doc, eq)
+            eq_no += 1 if eq_number else 0
+            _add_display_equation(doc, eq, number=eq_no if eq_number else None,
+                                  tab_pos=content_w)
             continue
 
         # --- abstract ---
         elif title == '摘要':
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            p.paragraph_format.first_line_indent = Pt(0)
+            p.paragraph_format.first_line_indent = abstract_indent
             p.paragraph_format.space_before = Pt(6)
             p.paragraph_format.space_after = Pt(0)
-            p.paragraph_format.line_spacing = 1.0
-            r = p.add_run(title + '：')
-            set_cn_font(r, "黑体", Pt(10.5), bold=True)
+            p.paragraph_format.line_spacing = abstract_ls
+            r = p.add_run(abstract_label + '：')
+            set_cn_font(r, f_abs_lbl, size_abs_lbl, bold=True)
             if body:
                 r2 = p.add_run(body)
-                set_cn_font(r2, "楷体", Pt(10.5))
+                set_cn_font(r2, f_abs, size_abs)
                 body = ""
 
         # --- keywords ---
         elif title in ('关键词', 'Keywords'):
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            p.paragraph_format.first_line_indent = Pt(0)
+            p.paragraph_format.first_line_indent = abstract_indent
             p.paragraph_format.space_before = Pt(0)
             p.paragraph_format.space_after = Pt(4)
             p.paragraph_format.line_spacing = 1.0
-            r = p.add_run(title + '：')
-            set_cn_font(r, "黑体", Pt(10.5), bold=True)
+            r = p.add_run(keyword_label + '：')
+            set_cn_font(r, f_kw_lbl, size_kw_lbl, bold=True)
             if body:
                 r2 = p.add_run(body)
-                set_cn_font(r2, "楷体", Pt(10.5))
+                set_cn_font(r2, f_kw, size_kw)
                 body = ""
+
+        # --- 参考文献标题（小标题，不是一级标题样式）---
+        elif level == 1 and raw_title in ("参考文献", "References"):
+            rp = doc.add_paragraph()
+            rp.alignment = ref_head["align"]
+            rp.paragraph_format.space_before = Pt(12)
+            rp.paragraph_format.space_after = Pt(6)
+            rp.paragraph_format.line_spacing = 1.0
+            rp.paragraph_format.keep_with_next = True
+            rr = rp.add_run(raw_title)
+            set_cn_font(rr, ref_head["font"], ref_head["size"],
+                        bold=ref_head["bold"])
 
         # --- L1 heading ---
         elif level == 1 and title:
             p = doc.add_paragraph()
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.alignment = h1[3]
             p.paragraph_format.space_before = Pt(12)
             p.paragraph_format.space_after = Pt(6)
+            p.paragraph_format.line_spacing = 1.0
+            p.paragraph_format.keep_with_next = True
             r = p.add_run(title)
-            set_cn_font(r, "黑体", Pt(heading1_size), bold=True)
+            set_cn_font(r, h1[0], h1[1], bold=h1[2])
 
         # --- L2 heading ---
         elif level == 2 and title:
             p = doc.add_paragraph()
-            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            p.alignment = h2[3]
             p.paragraph_format.space_before = Pt(6)
             p.paragraph_format.space_after = Pt(3)
-            p.paragraph_format.line_spacing = 1.2
+            p.paragraph_format.line_spacing = 1.0
+            p.paragraph_format.keep_with_next = True
             r = p.add_run(title)
-            set_cn_font(r, "黑体", Pt(heading2_size), bold=True)
+            set_cn_font(r, h2[0], h2[1], bold=h2[2])
 
         # --- L3 heading (figure/table caption) ---
         elif level == 3 and title:
             p = doc.add_paragraph()
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.alignment = h3[3]
             p.paragraph_format.space_before = Pt(10)
             p.paragraph_format.space_after = Pt(4)
+            p.paragraph_format.line_spacing = 1.0
             r = p.add_run(title)
-            set_cn_font(r, "黑体", Pt(heading3_size), bold=True)
+            set_cn_font(r, h3[0], h3[1], bold=h3[2])
 
         # ---- body text dispatch ----
         if not body:
@@ -923,7 +1163,8 @@ def render_from_dicts(sections, output="论文.docx", *, preset="thesis", **kwar
             key = body.replace("TABLE:", "").strip()
             fp = _resolve_table(key)
             if os.path.exists(fp):
-                _add_rtf_table(doc, fp, font_size=Pt(table_font_size))
+                _add_rtf_table(doc, fp, font_size=Pt(table_font_size),
+                               opts=table_opts)
             else:
                 print(f"[cn_docx] WARNING: table file not found: {fp}")
             continue
@@ -940,6 +1181,8 @@ def render_from_dicts(sections, output="论文.docx", *, preset="thesis", **kwar
             if os.path.exists(fp):
                 p = doc.add_paragraph()
                 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                p.paragraph_format.line_spacing = 1.0
+                p.paragraph_format.keep_with_next = True
                 r = p.add_run()
                 r.add_picture(fp, width=width)
             else:
@@ -949,22 +1192,49 @@ def render_from_dicts(sections, output="论文.docx", *, preset="thesis", **kwar
         if body.startswith("KEYWORDS:"):
             continue
 
+        if body.startswith("SUBTITLE:"):
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.paragraph_format.space_after = Pt(12)
+            p.paragraph_format.line_spacing = 1.0
+            r = p.add_run(body.replace("SUBTITLE:", "").strip())
+            set_cn_font(r, f_sub, size_sub, bold=subtitle_bold)
+            continue
+
+        if body.startswith("AUTHOR:"):
+            p = doc.add_paragraph()
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.paragraph_format.space_after = Pt(10)
+            p.paragraph_format.line_spacing = 1.0
+            r = p.add_run(body.replace("AUTHOR:", "").strip())
+            set_cn_font(r, f_author, size_author, bold=author_bold)
+            continue
+
         if body.startswith("REF:"):
             ref_text = body.replace("REF:", "").strip()
             p = doc.add_paragraph()
-            p.paragraph_format.first_line_indent = Pt(0)
+            p.paragraph_format.first_line_indent = Pt(ref_indent)
             p.paragraph_format.line_spacing = ref_line_spacing
             p.paragraph_format.space_before = Pt(0)
             p.paragraph_format.space_after = Pt(0)
-            r = p.add_run(ref_text)
-            set_cn_font(r, "宋体", Pt(ref_size))
+            for kind, seg in _iter_inline(ref_text):
+                if kind == "text":
+                    r = p.add_run(_fix_quotes(seg))
+                    set_cn_font(r, f_ref, Pt(ref_size))
+                elif kind == "fn":
+                    add_footnote(p, doc, seg, font=fn_font, size=fn_size)
+                else:
+                    r = p.add_run(_fix_quotes(seg))
+                    set_cn_font(r, f_ref, Pt(ref_size), bold=(kind == "b"))
+                    if kind == "i":
+                        r.italic = True
             continue
 
         if body.startswith("NOTE:"):
             p = doc.add_paragraph()
             r = p.add_run(body.replace("NOTE:", "").strip())
-            set_cn_font(r, "宋体", Pt(9))
-            r.italic = True
+            set_cn_font(r, f_note, size_note)
+            r.italic = note_italic
             continue
 
         # regular text — split on \n\n
@@ -977,7 +1247,9 @@ def render_from_dicts(sections, output="论文.docx", *, preset="thesis", **kwar
 
             if para_text.startswith("EQUATION:"):
                 eq = para_text.replace("EQUATION:", "").strip()
-                _add_display_equation(doc, eq)
+                eq_no += 1 if eq_number else 0
+                _add_display_equation(doc, eq, number=eq_no if eq_number else None,
+                                      tab_pos=content_w)
                 continue
 
             if para_text.startswith("NOINDENT:"):
@@ -989,7 +1261,7 @@ def render_from_dicts(sections, output="论文.docx", *, preset="thesis", **kwar
                 p.paragraph_format.space_after = Pt(6)
                 p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
                 r = p.add_run(_fix_quotes(text))
-                set_cn_font(r, "宋体", Pt(body_size))
+                set_cn_font(r, f_body, Pt(body_size))
                 continue
 
             # H1/H2/H3 hypothesis line → bold (H1N1、H2O 等不误判)
@@ -998,12 +1270,16 @@ def render_from_dicts(sections, output="论文.docx", *, preset="thesis", **kwar
                 p.paragraph_format.first_line_indent = Pt(body_indent)
                 p.paragraph_format.line_spacing = body_line_spacing
                 r = p.add_run(para_text)
-                set_cn_font(r, "宋体", Pt(body_size), bold=True)
+                set_cn_font(r, f_body, Pt(body_size), bold=True)
             else:
                 _add_body_paragraph(doc, para_text,
                                     size=Pt(body_size),
                                     indent=Pt(body_indent),
-                                    line_spacing=body_line_spacing)
+                                    line_spacing=body_line_spacing,
+                                    space_before=body_sp_before,
+                                    space_after=body_sp_after,
+                                    font=f_body,
+                                    fn_font=fn_font, fn_size=fn_size)
 
     doc.save(output)
     if not output.startswith("__"):  # suppress print during tests
