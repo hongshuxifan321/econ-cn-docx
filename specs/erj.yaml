@@ -5,140 +5,64 @@
 #
 # 注意：刊登版和这份不一样 —— 刊登正文 11.8pt、标题 21.6pt、一级标题 12.7pt，
 # 那是编辑部印刷排版的尺寸；投稿用这份。
+#
+# 只写与 base.yaml 不同的键；改 base 会继承过来。
 
 extends: base
-
-# ── 页面 ──
-margin_top: 2.54
-margin_bottom: 2.54
 margin_left: 2.54
-margin_right: 2.54
-
-# ── 标题块 ──
-title_size: 15          # 三号/小三
+title_size: 15
 title_font: 宋体
-title_bold: true
-subtitle_size: 14       # 副标题「——来自…」
 subtitle_font: 宋体
-subtitle_bold: false
-
-author_size: 12         # 小四
-author_font: 宋体
-author_bold: false
-
-# ── 摘要 / 关键词 ──
 abstract_label: 内容摘要
-abstract_label_font: 黑体
-abstract_label_size: 10.5
-abstract_font: 仿宋      # 样张红字：仿宋 5 号
-abstract_size: 10.5
-abstract_indent: 21     # 首行缩进 2 字
-
-keyword_label: 关键词
-keyword_label_font: 黑体
-keyword_label_size: 10.5
+abstract_font: 仿宋
+abstract_indent: 21
 keyword_font: 仿宋
-keyword_size: 10.5
-
-# ── 各级标题 ──
-heading1_size: 14       # 四号，居中「一、引言」
+heading1_size: 14
 heading1_font: 宋体
 heading1_bold: false
-heading1_align: center
-
-heading2_size: 10.5     # 与正文同号，前空 2 格「（一）」
+heading2_size: 10.5
 heading2_font: 宋体
 heading2_bold: false
-heading2_align: left
-
-heading3_size: 9        # 图题黑体小五（表题见 table_title）
-heading3_font: 黑体
+heading3_size: 9
 heading3_bold: false
-heading3_align: center
-
-# ── 正文 ──
-body_size: 10.5         # 五号
-body_font: 宋体
-body_line_spacing: "16pt"   # 推断：按刊登版 1.46× 比例折算
-body_indent: 21
-body_space_before: 0     # 中文期刊靠缩进分段，不留段间距
+body_size: 10.5
+body_space_before: 0
 body_space_after: 0
-
-# ── 表格 ──
-table_font_size: 9      # 比正文小一号
-table_font: 仿宋        # 样张红字：表格建议仿宋
+body_line_spacing: 16pt
+body_indent: 21
+table_font: 仿宋
 table_header_font: 仿宋
 table_header_bold: false
-table_rule_top: 12
-table_rule_mid: 8
-table_rule_bottom: 12
-table_title_size: 10.5
 table_title_font: 仿宋
 table_title_bold: false
-table_note_size: 7.5    # 比表格小一号，宋体
-table_note_font: 宋体
-
-# ── 表注 / 脚注行 ──
+table_note_size: 7.5
 note_size: 7.5
-note_font: 宋体
 note_italic: false
-
-# ── 参考文献 ──
-ref_size: 7.5           # 六号
-ref_font: 宋体
+ref_size: 7.5
 ref_line_spacing: 1.0
-ref_indent: 21          # 每一条前空 2 格
-
-# ── 自动编号 / 公式编号 ──
-auto_number: true
-equation_number: true
-
-# ── 参考文献标题（体例未给，按刊出页取左对齐小标题）──
-ref_heading_font: 黑体
-ref_heading_size: 10.5
-ref_heading_bold: true
-ref_heading_align: left
-
-# ── 页脚注（首页作者信息走脚注）──
-footnote_font: 宋体
-footnote_size: 7.5
-footnote_per_page: true
-footnote_num_format: chicago   # 星号 *†‡：首页作者信息正好落在 *（体例要求 *）
-
-# ── 页码 ──
+ref_indent: 21
 page_number: true
-page_number_size: 9
-page_number_font: 宋体
-
+equation_number: true
+footnote_num_format: chicago
 sources:
+  margin_left: 推断
   title_size: 官方样张
   title_font: 官方样张
-  title_bold: 推断
-  subtitle_size: 刊登版实测
   subtitle_font: 刊登版实测
   abstract_label: 官方样张
   abstract_font: 官方样张
-  abstract_size: 官方样张
   keyword_font: 官方样张
   heading1_size: 官方样张
   heading1_bold: 推断
   heading2_size: 官方样张
-  heading3_font: 官方样张
   heading3_size: 官方样张
   body_size: 官方样张
-  body_font: 官方样张
   body_line_spacing: 推断
   body_indent: 官方样张
   table_font: 官方样张
-  table_font_size: 官方样张
   table_title_font: 刊登版实测
   table_note_size: 官方样张
   ref_size: 官方样张
   ref_indent: 官方样张
-  margin_top: 推断
-  margin_left: 推断
   page_number: 刊登版实测
   equation_number: 官方样张（公式右侧编号）
-  ref_heading_font: 推断
-  footnote_per_page: 官方样张
-  footnote_size: 官方样张

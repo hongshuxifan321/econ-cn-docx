@@ -7,7 +7,7 @@ Word 的脚注不在 document.xml 里，而在独立的 ``word/footnotes.xml`` �
 正文处只放一个引用（``w:footnoteReference w:id=N``），脚注正文按 id 放在该部件里。
 python-docx 的默认模板不含这个部件，所以这里手工创建并挂关系。
 
-对外只暴露 :func:`add_footnote` 与 :func:`enable_per_page_restart`。
+对外只暴露 :func:`add_footnote` 与 :func:`set_footnote_props`。
 """
 
 from docx.opc.packuri import PackURI

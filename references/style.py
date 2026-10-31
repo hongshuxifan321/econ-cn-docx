@@ -195,7 +195,7 @@ class Style:
 def resolve(spec=None, overrides=None):
     """合并顺序：DEFAULTS → spec → 调用参数；同时记录来源。
 
-    没有 preset 了：不指定 spec 就用 base.yaml。
+    不指定 spec 就用 base.yaml。
     """
     params = dict(DEFAULTS)
     sources = {k: "默认" for k in DEFAULTS}

@@ -16,10 +16,10 @@ from docx.oxml import OxmlElement
 from lxml import etree
 
 try:                                     # pipeline 作为包内模块导入
-    from .style import DEFAULTS, Style, resolve
+    from .style import Style, resolve
     from .footnotes import add_footnote, set_footnote_props
 except ImportError:                      # 直接按文件运行时的兜底
-    from references.style import DEFAULTS, Style, resolve
+    from references.style import Style, resolve
     from references.footnotes import add_footnote, set_footnote_props
 
 
