@@ -2,15 +2,14 @@
 """Tests for econ-cn-docx pipeline functions. Run: python tests.py"""
 import unittest, sys, os, tempfile
 
-# Ensure skill modules are importable
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+# 单文件模块就在本目录
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from references.pipeline import (
+from cnpaper import (
     _fix_quotes, _latex_to_unicode, _render_math_content,
     _add_display_equation, _parse_rtf_table, _add_body_paragraph,
-    set_cn_font, render_from_dicts,
+    set_cn_font, render_from_dicts, Paper,
 )
-from paper import Paper
 from docx import Document
 from docx.shared import Pt
 from lxml import etree
@@ -333,7 +332,7 @@ class TestRenderFromDicts(unittest.TestCase):
             os.unlink(out)
 
     def test_spec_unknown_field_raises(self):
-        from references.style import resolve
+        from cnpaper import resolve
         with self.assertRaises(KeyError):
             resolve(overrides={'no_such_key': 1})
 
@@ -352,7 +351,7 @@ class TestStyleLayer(unittest.TestCase):
 
     def test_default_spec_is_erj_layout(self):
         """不指定 spec 时就是通用版式（基于经研投稿体例）。"""
-        from references.style import resolve
+        from cnpaper import resolve
         st = resolve()
         self.assertAlmostEqual(st.get('body_size'), 10.5)
         self.assertEqual(st.get('body_font'), '宋体')
@@ -360,13 +359,13 @@ class TestStyleLayer(unittest.TestCase):
         self.assertEqual(st.get('footnote_num_format'), 'chicago')
 
     def test_unknown_override_raises(self):
-        from references.style import resolve
+        from cnpaper import resolve
         with self.assertRaises(KeyError):
             resolve(overrides={'nope': 1})
 
     def test_removed_erj_alias_raises(self):
         """erj.yaml 已删除，按名取规格必须报错而不是静默回落。"""
-        from references.style import resolve
+        from cnpaper import resolve
         with self.assertRaises(FileNotFoundError):
             resolve(spec='erj')
 

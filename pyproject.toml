@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cn-docx"
-version = "2.0.0"
-description = "经管实证论文中文学术 Word 排版"
+version = "2.1.0"
+description = "经管实证论文中文学术 Word 排版（单文件模块 cnpaper）"
 requires-python = ">=3.9"
 dependencies = [
     "python-docx>=1.0",
@@ -14,5 +14,4 @@ dependencies = [
 ]
 
 [tool.setuptools]
-py-modules = ["cn_docx", "paper"]
-packages = ["references"]
+py-modules = ["cnpaper"]

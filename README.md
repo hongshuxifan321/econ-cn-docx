@@ -11,7 +11,7 @@ pip install -e ~/.dsh/skills/econ-cn-docx
 ## 快速开始
 
 ```python
-from cn_docx import Paper
+from cnpaper import Paper
 
 p = Paper()
 p.title("空气污染、远程工作可行性与城市经济产出")
@@ -62,7 +62,7 @@ p.render("论文.docx", report=True)               # 打印生效值 + 每项来
 管理规格：
 
 ```python
-from cn_docx import Style, list_specs, save
+from cnpaper import Style, list_specs, save
 
 list_specs()                                                  # 用户规格列表
 Style.load().describe()                                       # 逐项看生效值 + 来源
@@ -154,7 +154,7 @@ p.render("论文.docx",            # 不写 spec 即通用版式（经研投稿�
 逐轮比对排版结果，不用开 Word：
 
 ```python
-from references.preview import preview
+from cnpaper import preview
 preview("论文.docx")        # → preview/p1.png, p2.png …
 ```
 
@@ -179,7 +179,7 @@ preview("论文.docx")        # → preview/p1.png, p2.png …
 ## 兼容：JSON 入口
 
 ```python
-from cn_docx import render
+from cnpaper import render
 render("paper_content.json", output="论文.docx")   # 默认即通用版式
 ```
 

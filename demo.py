@@ -9,7 +9,7 @@ import os
 import sys
 import tempfile
 
-from cn_docx import Paper
+from cnpaper import Paper
 
 spec = sys.argv[1] if len(sys.argv) > 1 else "base"
 here = os.path.dirname(os.path.abspath(__file__))

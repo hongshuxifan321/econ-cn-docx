@@ -1,11 +1,413 @@
 # -*- coding: utf-8 -*-
-"""econ-cn-docx 排版流水线：read JSON → render docx.
+"""cnpaper — 经管实证论文中文学术 Word 排版（单文件模块）。
 
-   Usage:
-       from cn_docx import render
-       render("paper_content.json", output="论文.docx")
+用法::
+
+    from cnpaper import Paper
+
+    p = Paper()
+    p.title("标题")
+    p.author("张　三")
+    p.abstract("……")
+    p.render("论文.docx")          # 不写 spec = 通用版式（基于经研投稿体例）
+
+版式：通用版式写在 specs/base.yaml；用户自定义规格放 ~/.dsh/econ-cn-docx/specs/
 """
 
+__all__ = [
+    "Paper", "render", "render_from_dicts", "set_cn_font", "preview",
+    "Style", "DEFAULTS", "resolve", "load_spec", "save", "list_specs",
+    "USER_SPEC_DIR", "SKILL_SPEC_DIR",
+]
+
+import json
+import os
+import re
+import subprocess
+
+import yaml
+from docx import Document
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.opc.packuri import PackURI
+from docx.opc.part import XmlPart
+from docx.oxml import OxmlElement, parse_xml
+from docx.oxml.ns import nsdecls, qn
+from docx.shared import Cm, Pt
+from lxml import etree
+
+
+# ==============================================================================
+# 来自 style.py
+# ==============================================================================
+import os
+
+import yaml
+
+
+USER_SPEC_DIR = os.path.expanduser("~/.dsh/econ-cn-docx/specs")
+SKILL_SPEC_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "specs"
+)
+
+# ═══════════════════════════════════════════════════════════════
+# 参数全集（单一事实来源：pipeline 从这里取默认值）
+# 值 = 《经济研究》投稿体例（A 版），与 specs/base.yaml 一致，改一边必须改另一边
+# ═══════════════════════════════════════════════════════════════
+
+DEFAULTS = dict(
+    # 目录与表格映射
+    tables_dir="tables", figures_dir="figures", table_map=None,
+    # 页面
+    margin_top=2.54, margin_bottom=2.54, margin_left=2.54, margin_right=2.54,
+    # 标题块
+    title_size=15, title_font="宋体", title_bold=True,
+    subtitle_size=14, subtitle_font="宋体", subtitle_bold=False,
+    author_size=12, author_font="宋体", author_bold=False,
+    # 摘要 / 关键词
+    abstract_label="内容摘要", abstract_label_font="黑体", abstract_label_size=10.5,
+    abstract_font="仿宋", abstract_size=10.5, abstract_indent=21,
+    keyword_label="关键词", keyword_label_font="黑体", keyword_label_size=10.5,
+    keyword_font="仿宋", keyword_size=10.5,
+    # 正文
+    body_size=10.5, body_font="宋体", body_line_spacing="16pt", body_indent=21,
+    body_space_before=0, body_space_after=0,
+    # 各级标题
+    heading1_size=14, heading1_font="宋体", heading1_bold=False, heading1_align="center",
+    heading2_size=10.5, heading2_font="宋体", heading2_bold=False, heading2_align="left",
+    heading3_size=9, heading3_font="黑体", heading3_bold=False, heading3_align="center",
+    # 表格
+    table_font_size=9, table_font="仿宋", table_header_font="仿宋", table_header_bold=False,
+    table_rule_top=12, table_rule_mid=8, table_rule_bottom=12,
+    table_title_size=10.5, table_title_font="仿宋", table_title_bold=False,
+    table_note_size=7.5, table_note_font="宋体",
+    # 表注 / 脚注样式（NOTE: 行）
+    note_size=7.5, note_font="宋体", note_italic=False,
+    # 参考文献
+    ref_size=7.5, ref_font="宋体", ref_line_spacing=1.0, ref_indent=21,
+    # 页码
+    page_number=True, page_number_size=9, page_number_font="宋体",
+    # 自动编号（一、/（一）/图1/表1/公式(1)）
+    auto_number=True,
+    equation_number=True,
+    # 参考文献标题
+    ref_heading_font="黑体", ref_heading_size=10.5, ref_heading_bold=True,
+    ref_heading_align="left",
+    # 脚注
+    footnote_font="宋体", footnote_size=7.5, footnote_per_page=True,
+    footnote_num_format="chicago",   # decimal / decimalEnclosedCircle / chicago
+)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 规格文件加载
+# ═══════════════════════════════════════════════════════════════
+
+def _find_spec_file(name):
+    """名字 → 路径。顺序：显式路径 → 用户目录 → skill 目录。"""
+    if name.endswith((".yaml", ".yml")):
+        if os.path.exists(name):
+            return name
+        if os.path.exists(os.path.join(USER_SPEC_DIR, name)):
+            return os.path.join(USER_SPEC_DIR, name)
+        if os.path.exists(os.path.join(SKILL_SPEC_DIR, name)):
+            return os.path.join(SKILL_SPEC_DIR, name)
+        raise FileNotFoundError("找不到规格文件: %s" % name)
+    for d in (USER_SPEC_DIR, SKILL_SPEC_DIR):
+        p = os.path.join(d, name + ".yaml")
+        if os.path.exists(p):
+            return p
+    avail = list_specs()
+    raise FileNotFoundError(
+        "找不到规格 '%s'；现有可用规格: %s（默认版式 base 不需要指定，"
+        "自定义规格放 %s）"
+        % (name, ", ".join(avail) if avail else "无，只有通用版式 base",
+           USER_SPEC_DIR)
+    )
+
+
+def list_specs():
+    """列出可用规格名（用户目录在前）。"""
+    names = []
+    for d in (USER_SPEC_DIR, SKILL_SPEC_DIR):
+        if not os.path.isdir(d):
+            continue
+        for f in sorted(os.listdir(d)):
+            if f.endswith((".yaml", ".yml")) and f != "base.yaml":
+                n = f.rsplit(".", 1)[0]
+                if n not in names:
+                    names.append(n)
+    return names
+
+
+def load_spec(name, _seen=None):
+    """加载规格（支持 extends 继承），返回 dict（不含 extends/sources 键）。"""
+    _seen = _seen or []
+    path = _find_spec_file(name)
+    if path in _seen:
+        raise ValueError("规格循环继承: %s" % path)
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise ValueError("规格文件必须是键值表: %s" % path)
+    sources = data.pop("sources", {}) or {}
+    data.pop("note", None)
+    parent = data.pop("extends", None)
+    if parent:
+        base = load_spec(parent, _seen + [path])
+        base_sources = base.pop("_sources", {})
+        merged = dict(base)
+        merged.update(data)
+        merged_sources = dict(base_sources)
+        merged_sources.update(sources)
+        merged["_sources"] = merged_sources
+        return merged
+    data["_sources"] = sources
+    return data
+
+
+def _spec_payload(name):
+    """(params, sources, label) — 供 resolve 使用。"""
+    raw = load_spec(name)
+    sources = raw.pop("_sources", {}) or {}
+    label = os.path.splitext(os.path.basename(name))[0]
+    return raw, sources, label
+
+
+# ═══════════════════════════════════════════════════════════════
+# Style
+# ═══════════════════════════════════════════════════════════════
+
+class Style:
+    """生效的排版参数 + 每项来源。"""
+
+    def __init__(self, params, sources=None):
+        self.params = dict(params)
+        self.sources = dict(sources or {})
+
+    # ---- 构造 ----
+    @classmethod
+    def load(cls, spec=None, overrides=None):
+        return resolve(spec=spec, overrides=overrides)
+
+    # ---- 访问 ----
+    def get(self, key, default=None):
+        return self.params.get(key, DEFAULTS.get(key, default))
+
+    def __getitem__(self, key):
+        return self.params[key]
+
+    def to_params(self):
+        return dict(self.params)
+
+    # ---- 报告 ----
+    def describe(self, keys=None, file=None):
+        """打印生效值 + 来源（默认只打印排版相关项）。"""
+        keys = keys or [k for k in DEFAULTS if not k.endswith("_dir")
+                        and k not in ("table_map",)]
+        lines = ["%-24s %-22s %s" % ("参数", "生效值", "来源"),
+                 "-" * 64]
+        for k in keys:
+            lines.append("%-24s %-22s %s" % (k, str(self.get(k)), self.sources.get(k, "")))
+        text = "\n".join(lines)
+        if file:
+            with open(file, "w", encoding="utf-8") as f:
+                f.write(text + "\n")
+        return text
+
+
+def resolve(spec=None, overrides=None):
+    """合并顺序：DEFAULTS → spec → 调用参数；同时记录来源。
+
+    不指定 spec 就用 base.yaml（= 通用版式 = 《经济研究》投稿体例）。
+    """
+    params = dict(DEFAULTS)
+    sources = {k: "默认" for k in DEFAULTS}
+    spec = spec or "base"
+
+    if spec:
+        data, spec_sources, label = _spec_payload(spec)
+        unknown = [k for k in data if k not in DEFAULTS]
+        if unknown:
+            raise KeyError(
+                "规格 %s 含未知字段 %s（不是全部拼错，也可能是渲染器还不支持的能力）"
+                % (label, sorted(unknown))
+            )
+        for k, v in data.items():
+            params[k] = v
+            sources[k] = spec_sources.get(k, "规格:%s" % label)
+
+    unknown = [k for k in (overrides or {}) if k not in DEFAULTS]
+    if unknown:
+        raise KeyError(
+            "未知参数 %s（拼错了，或者渲染器还不支持这个能力）" % sorted(unknown))
+    for k, v in (overrides or {}).items():
+        params[k] = v
+        sources[k] = "调用参数"
+
+    # 兼容旧名：body_line_spacing 可以是倍数(1.5)或固定值字符串("16pt")
+    return Style(params, sources)
+
+
+def save(name, style, extends="base", note=""):
+    """把 Style 存进用户目录，与 base 并行存在。"""
+    os.makedirs(USER_SPEC_DIR, exist_ok=True)
+    if not name.endswith((".yaml", ".yml")):
+        name += ".yaml"
+    base = Style.load(spec=extends) if extends else Style({})
+    diffs = {}
+    for k, v in style.params.items():
+        if base.params.get(k) != v:
+            diffs[k] = v
+    srcs = {k: style.sources.get(k, "") for k in diffs}
+    payload = {"extends": extends}
+    if note:
+        payload["note"] = note
+    payload.update(diffs)
+    payload["sources"] = srcs
+    path = os.path.join(USER_SPEC_DIR, name)
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(payload, f, allow_unicode=True, sort_keys=False)
+    spec_name = os.path.splitext(os.path.basename(path))[0]
+    print("[cnpaper] 已存为用户规格: %s（与 %s 的差异 %d 项）\n"
+          "          下次调用: p.render(..., spec=\"%s\")"
+          % (path, extends or "（空）", len(diffs), spec_name))
+    return path
+
+
+# ==============================================================================
+# 来自 footnotes.py
+# ==============================================================================
+from docx.opc.packuri import PackURI
+from docx.opc.part import XmlPart
+from docx.oxml import parse_xml
+from docx.oxml.ns import nsdecls, qn
+from docx.oxml import OxmlElement
+
+
+FOOTNOTES_CT = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"
+)
+RT_FOOTNOTES = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"
+)
+
+_EMPTY = (
+    '<w:footnotes %s>'
+    '<w:footnote w:type="separator" w:id="-1">'
+    '<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>'
+    '<w:r><w:separator/></w:r></w:p></w:footnote>'
+    '<w:footnote w:type="continuationSeparator" w:id="0">'
+    '<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>'
+    '<w:r><w:continuationSeparator/></w:r></w:p></w:footnote>'
+    "</w:footnotes>" % nsdecls("w")
+)
+
+
+def _root(doc):
+    """取（必要时创建）footnotes 部件。"""
+    for rel in doc.part.rels.values():
+        if rel.reltype == RT_FOOTNOTES:
+            return rel.target_part.element
+    part = XmlPart(PackURI("/word/footnotes.xml"), FOOTNOTES_CT,
+                   parse_xml(_EMPTY), doc.part.package)
+    doc.part.relate_to(part, RT_FOOTNOTES)
+    return part.element
+
+
+def footnote_count(doc):
+    root = _root(doc)
+    return len([f for f in root.findall(qn("w:footnote"))
+                if f.get(qn("w:type")) is None])
+
+
+def add_footnote(paragraph, doc, text, font="宋体", size=7.5, first_indent_chars=2):
+    """在 paragraph 末尾插脚注引用，并写入脚注正文。
+
+    标记样式由 :func:`set_footnote_props` 决定（数字 / ①②③ / *†‡）。
+    """
+    root = _root(doc)
+    fid = 2 + footnote_count(doc)          # -1/0 是分隔符，正文脚注从 2 起
+
+    # 1) 脚注正文
+    fn = OxmlElement("w:footnote")
+    fn.set(qn("w:id"), str(fid))
+    p = OxmlElement("w:p")
+    ppr = OxmlElement("w:pPr")
+    spacing = OxmlElement("w:spacing")
+    spacing.set(qn("w:line"), "240")
+    spacing.set(qn("w:lineRule"), "auto")
+    spacing.set(qn("w:after"), "0")
+    ppr.append(spacing)
+    if first_indent_chars:
+        ind = OxmlElement("w:ind")
+        ind.set(qn("w:firstLineChars"), str(int(first_indent_chars * 100)))
+        ind.set(qn("w:firstLine"), str(int(size * 20 * first_indent_chars)))
+        ppr.append(ind)
+    p.append(ppr)
+
+    r1 = OxmlElement("w:r")
+    r1.append(OxmlElement("w:footnoteRef"))
+    p.append(r1)
+
+    r2 = OxmlElement("w:r")
+    rpr = OxmlElement("w:rPr")
+    rfonts = OxmlElement("w:rFonts")
+    rfonts.set(qn("w:ascii"), "Times New Roman")
+    rfonts.set(qn("w:hAnsi"), "Times New Roman")
+    rfonts.set(qn("w:eastAsia"), font)
+    rpr.append(rfonts)
+    sz = OxmlElement("w:sz")
+    sz.set(qn("w:val"), str(int(size * 2)))       # half-points
+    rpr.append(sz)
+    r2.append(rpr)
+    t = OxmlElement("w:t")
+    t.set(qn("xml:space"), "preserve")
+    t.text = text
+    r2.append(t)
+    p.append(r2)
+    fn.append(p)
+    root.append(fn)
+
+    # 2) 正文里的引用标记
+    run = paragraph.add_run()
+    rpr = OxmlElement("w:rPr")
+    rstyle = OxmlElement("w:rStyle")
+    rstyle.set(qn("w:val"), "FootnoteReference")
+    rpr.append(rstyle)
+    va = OxmlElement("w:vertAlign")
+    va.set(qn("w:val"), "superscript")
+    rpr.append(va)
+    run._r.append(rpr)
+    ref = OxmlElement("w:footnoteReference")
+    ref.set(qn("w:id"), str(fid))
+    run._r.append(ref)
+    return fid - 1
+
+
+def set_footnote_props(doc, num_fmt="decimal", per_page=True):
+    """设置脚注编号格式与是否每页重编。
+
+    num_fmt: decimal（1,2,3）/ decimalEnclosedCircle（①②③）/ chicago（*†‡）
+    """
+    for sect in doc.sections:
+        pr = sect._sectPr
+        fpr = pr.find(qn("w:footnotePr"))
+        if fpr is None:
+            fpr = OxmlElement("w:footnotePr")
+            pr.insert(0, fpr)
+        for tag, val in (("w:numFmt", num_fmt),
+                         ("w:numRestart", "eachPage" if per_page else "continuous")):
+            el = fpr.find(qn(tag))
+            if el is None:
+                el = OxmlElement(tag)
+                fpr.append(el)
+            el.set(qn("w:val"), val)
+
+
+# ==============================================================================
+# 来自 pipeline.py
+# ==============================================================================
 import json, os, re
 from docx import Document
 from docx.shared import Pt, Cm
@@ -14,14 +416,6 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from lxml import etree
-
-try:                                     # pipeline 作为包内模块导入
-    from .style import Style, resolve
-    from .footnotes import add_footnote, set_footnote_props
-except ImportError:                      # 直接按文件运行时的兜底
-    from references.style import Style, resolve
-    from references.footnotes import add_footnote, set_footnote_props
-
 
 def _cn_num(n):
     """1 → 一、11 → 十一（到九十九够用）。"""
@@ -799,7 +1193,7 @@ def _add_runs_with_math(p, text, font, size):
             set_cn_font(r, font, size)
         else:
             if '\\' in part:
-                print(f"[cn_docx] WARNING: 内联公式含未支持命令: {part!r} — 请改用 equation()")
+                print(f"[cnpaper] WARNING: 内联公式含未支持命令: {part!r} — 请改用 equation()")
             _add_inline_omath(p, part)
 
 
@@ -1004,7 +1398,7 @@ def render_from_dicts(sections, output="论文.docx", *, spec=None,
                 pp.paragraph_format.keep_with_next = True
                 pp.add_run().add_picture(fp, width=Cm(float(sec.get("width") or 10)))
             else:
-                print(f"[cn_docx] WARNING: image file not found: {fp}")
+                print(f"[cnpaper] WARNING: image file not found: {fp}")
             cap = sec.get("caption")
             if cap:
                 cp = doc.add_paragraph()
@@ -1035,7 +1429,7 @@ def render_from_dicts(sections, output="论文.docx", *, spec=None,
                                opts=table_opts,
                                with_title=not cap)
             else:
-                print(f"[cn_docx] WARNING: table file not found: {fp}")
+                print(f"[cnpaper] WARNING: table file not found: {fp}")
             continue
 
         # ---- 自动编号（已有编号则跳过）----
@@ -1166,7 +1560,7 @@ def render_from_dicts(sections, output="论文.docx", *, spec=None,
                 _add_rtf_table(doc, fp, font_size=Pt(table_font_size),
                                opts=table_opts)
             else:
-                print(f"[cn_docx] WARNING: table file not found: {fp}")
+                print(f"[cnpaper] WARNING: table file not found: {fp}")
             continue
 
         if body.startswith("IMAGE:"):
@@ -1186,7 +1580,7 @@ def render_from_dicts(sections, output="论文.docx", *, spec=None,
                 r = p.add_run()
                 r.add_picture(fp, width=width)
             else:
-                print(f"[cn_docx] WARNING: image file not found: {fp}")
+                print(f"[cnpaper] WARNING: image file not found: {fp}")
             continue
 
         if body.startswith("KEYWORDS:"):
@@ -1284,3 +1678,212 @@ def render_from_dicts(sections, output="论文.docx", *, spec=None,
     doc.save(output)
     if not output.startswith("__"):  # suppress print during tests
         print(f"论文已保存: {output}")
+
+
+# ==============================================================================
+# 来自 paper.py
+# ==============================================================================
+_EXPECTED_RENDER_KWARGS = {
+    "output", "tables_dir", "figures_dir", "table_map",
+    "margin_top", "margin_bottom", "margin_left", "margin_right",
+    "body_size", "body_line_spacing", "body_indent",
+    "heading1_size", "heading2_size", "heading3_size",
+    "ref_size", "ref_line_spacing", "table_font_size",
+    "spec", "style", "report",
+}
+
+
+class Paper:
+    """Accumulate sections and render to .docx via econ-cn-docx pipeline."""
+
+    def __init__(self):
+        self.sections = []
+
+    # ── metadata ──────────────────────────────────────────────
+
+    def title(self, text: str) -> None:
+        """Main paper title (level 0, 18pt bold centred)."""
+        self.sections.append({"title": text, "body": "", "level": 0})
+
+    def abstract(self, text: str) -> None:
+        """Chinese abstract (level 1, 楷体)。"""
+        self.sections.append({"title": "摘要", "body": text, "level": 1})
+
+    def keywords(self, text: str) -> None:
+        """Keywords line (level 1, 楷体)。"""
+        self.sections.append({"title": "关键词", "body": text, "level": 1})
+
+    def subtitle(self, text: str) -> None:
+        """副标题「——…」，居中，字体见 subtitle_font/size。"""
+        self.sections.append({"title": "", "body": f"SUBTITLE:{text}", "level": 0})
+
+    def author(self, text: str) -> None:
+        """作者姓名行，居中，字体见 author_font/size。"""
+        self.sections.append({"title": "", "body": f"AUTHOR:{text}", "level": 0})
+
+    # ── headings ──────────────────────────────────────────────
+
+    def h1(self, title: str, body: str = "") -> None:
+        """Level-1 heading (一、引言 etc.)。"""
+        self.sections.append({"title": title, "body": body, "level": 1})
+
+    def h2(self, title: str, body: str = "") -> None:
+        """Level-2 heading (（一）基准回归 etc.)。"""
+        self.sections.append({"title": title, "body": body, "level": 2})
+
+    def h3(self, title: str) -> None:
+        """Level-3 heading (图/表 caption, 10.5pt bold centred)。"""
+        self.sections.append({"title": title, "body": "", "level": 3})
+
+    # ── body ──────────────────────────────────────────────────
+
+    def para(self, text: str) -> None:
+        """Body paragraph (12pt 宋体 justified, first-line indent)。"""
+        self.sections.append({"title": "", "body": text, "level": 0})
+
+    def para_no_indent(self, text: str) -> None:
+        """Body paragraph without first-line indent (顶格)。"""
+        self.sections.append({"title": "", "body": f"NOINDENT:{text}", "level": 0})
+
+    def equation(self, latex: str) -> None:
+        """Display equation (OMML, centred). Prefix EQUATION: added."""
+        self.sections.append({"title": "", "body": f"EQUATION:{latex}", "level": 0})
+
+    def note(self, text: str) -> None:
+        """Table note (9pt 宋体 italic). Prefix NOTE: added."""
+        self.sections.append({"title": "", "body": f"NOTE:{text}", "level": 0})
+
+    # ── float ─────────────────────────────────────────────────
+
+    def table(self, key: str, caption: str = "") -> None:
+        """三线表。caption 非空时自动编号为「表N　caption」。"""
+        self.sections.append({"kind": "table", "key": key, "caption": caption})
+
+    def figure(self, filename: str, caption: str = "", width: float = 10) -> None:
+        """插图 + 自动编号图题「图N　caption」（图题在图下方）。"""
+        self.sections.append({"kind": "figure", "file": filename,
+                              "caption": caption, "width": width})
+
+    def footnote(self, text: str) -> None:
+        """给上一段（通常是标题）挂脚注，页下注、每页重新编号。
+
+        标记样式由 spec 的 footnote_num_format 决定（chicago → *、†、‡）。
+        """
+        self.sections.append({"kind": "footnote", "text": text})
+
+    def image(self, filename: str) -> None:
+        """Insert image (centred, 10 cm wide). Prefix IMAGE: added."""
+        self.sections.append({"title": "", "body": f"IMAGE:{filename}", "level": 0})
+
+    # ── back matter ───────────────────────────────────────────
+
+    def ref(self, text: str) -> None:
+        """Reference entry (10pt 宋体, 1.25× line spacing). Prefix REF: added."""
+        self.sections.append({"title": "", "body": f"REF:{text}", "level": 1})
+
+    # ── render ────────────────────────────────────────────────
+
+    def render(self, output: str = "论文.docx", **kwargs) -> None:
+        """Render accumulated sections to .docx.
+
+           Accepts all render() kwargs (tables_dir, figures_dir, table_map,
+           margin_*, body_size, heading1_size, heading2_size, spec, etc.).
+
+           spec:   规格名或 yaml 路径（"base"、"/path/to/x.yaml"），见 specs/；
+           style:  直接传入 Style 对象（优先级最高）；
+           report: True 时打印生效参数与来源。
+        """
+        unknown = set(kwargs) - _EXPECTED_RENDER_KWARGS
+        if unknown:
+            print(f"[cnpaper] WARNING: 未知参数被忽略: {sorted(unknown)}")
+        render_kwargs = {k: v for k, v in kwargs.items()
+                         if k in _EXPECTED_RENDER_KWARGS}
+        # Merge output into kwargs — render_from_dicts takes output as positional arg2
+        render_from_dicts(self.sections, output, **render_kwargs)
+
+
+# ==============================================================================
+# 来自 preview.py
+# ==============================================================================
+import os
+import subprocess
+
+
+_SOFFICE_CANDIDATES = [
+    r"C:\Program Files\LibreOffice\program\soffice.com",
+    r"C:\Program Files (x86)\LibreOffice\program\soffice.com",
+    r"C:\Program Files\LibreOffice\program\soffice.exe",
+    r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+    "/usr/bin/soffice",
+    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+]
+
+
+def find_soffice():
+    for p in _SOFFICE_CANDIDATES:
+        if os.path.exists(p):
+            return p
+    raise FileNotFoundError(
+        "找不到 LibreOffice（soffice）。装一个，或改用 office-render skill。"
+    )
+
+
+def _run(cmd, timeout):
+    r = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    out = (r.stdout or b"").decode("utf-8", "replace").strip()
+    err = (r.stderr or b"").decode("utf-8", "replace").strip()
+    return r.returncode, out, err
+
+
+def docx_to_pdf(docx_path, outdir=None, timeout=180, workdir=None):
+    """docx → pdf。workdir 用于放 LibreOffice 用户配置，必须可写。"""
+    docx_path = os.path.abspath(docx_path)
+    base = workdir or os.path.dirname(docx_path)
+    outdir = outdir or os.path.join(base, ".pdf")
+    os.makedirs(outdir, exist_ok=True)
+    profile = os.path.join(base, ".lo_profile")
+    os.makedirs(profile, exist_ok=True)
+
+    cmd = [
+        find_soffice(), "--headless", "--norestore", "--nologo",
+        "-env:UserInstallation=file:///" + profile.replace("\\", "/"),
+        "--convert-to", "pdf", "--outdir", outdir, docx_path,
+    ]
+    # 上一次转换的产物若还被占用（Win 上偶发），LibreOffice 会以 0x11b 写失败
+    pdf = os.path.join(outdir, os.path.splitext(os.path.basename(docx_path))[0] + ".pdf")
+    try:
+        if os.path.exists(pdf):
+            os.remove(pdf)
+    except OSError:
+        pass
+    rc, out, err = _run(cmd, timeout)
+    if rc != 0 or not os.path.exists(pdf):
+        raise RuntimeError(
+            "LibreOffice 转换失败 (rc=%s, pdf_exists=%s)\nstdout: %s\nstderr: %s\n"
+            "若提示「无法完成 LibreOffice 用户安装」，说明配置目录不可写：%s"
+            % (rc, os.path.exists(pdf), out[:500], err[:500], profile)
+        )
+    return pdf
+
+
+def pdf_to_png(pdf_path, outdir, dpi=150, pages=None):
+    import pymupdf
+    os.makedirs(outdir, exist_ok=True)
+    doc = pymupdf.open(pdf_path)
+    idx = range(doc.page_count) if pages is None else pages
+    out = []
+    for i in idx:
+        pix = doc[i].get_pixmap(dpi=dpi)
+        path = os.path.join(outdir, "p%d.png" % (i + 1))
+        pix.save(path)
+        out.append(path)
+    return out
+
+
+def preview(docx_path, outdir=None, dpi=150, pages=None, workdir=None):
+    """渲染预览图，返回 PNG 路径列表。"""
+    docx_path = os.path.abspath(docx_path)
+    base = workdir or os.path.dirname(docx_path)
+    outdir = outdir or os.path.join(base, "preview")
+    pdf = docx_to_pdf(docx_path, os.path.join(base, ".pdf"), workdir=base)
+    return pdf_to_png(pdf, outdir, dpi=dpi, pages=pages)

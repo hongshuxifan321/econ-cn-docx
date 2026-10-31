@@ -24,7 +24,7 @@ python demo.py path/to/other.yaml  # 换一份规格
 ## 最小示例
 
 ```python
-from cn_docx import Paper
+from cnpaper import Paper
 
 p = Paper()
 p.title("……")
@@ -94,7 +94,7 @@ p.render("论文.docx")             # 不写 spec = 通用版式
 ```python
 # 1) 新期刊：新建 yaml，首行写 extends: base，只列与经研体例不同的键
 # 2) 用户自定义规格放 ~/.dsh/econ-cn-docx/specs/（skill 升级不会丢）
-from cn_docx import Style, list_specs, save
+from cnpaper import Style, list_specs, save
 list_specs()
 Style.load().describe()                              # 逐项看生效值 + 来源
 save("my-style", Style.load(overrides={"body_size": 9}))
