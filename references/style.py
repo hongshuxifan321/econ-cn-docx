@@ -250,4 +250,8 @@ def save(name, style, extends="base", note=""):
     path = os.path.join(USER_SPEC_DIR, name)
     with open(path, "w", encoding="utf-8") as f:
         yaml.safe_dump(payload, f, allow_unicode=True, sort_keys=False)
+    spec_name = os.path.splitext(os.path.basename(path))[0]
+    print("[cn_docx] 已存为用户规格: %s（与 %s 的差异 %d 项）\n"
+          "          下次调用: p.render(..., spec=\"%s\")"
+          % (path, extends or "（空）", len(diffs), spec_name))
     return path

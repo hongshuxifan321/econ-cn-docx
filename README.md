@@ -62,7 +62,7 @@ p.render("论文.docx", report=True)               # 打印生效值 + 每项来
 管理规格：
 
 ```python
-from references.style import Style, list_specs, save
+from cn_docx import Style, list_specs, save
 
 list_specs()                                                  # 用户规格列表
 Style.load().describe()                                       # 逐项看生效值 + 来源
