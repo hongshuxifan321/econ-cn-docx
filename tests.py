@@ -308,6 +308,29 @@ class TestRenderFromDicts(unittest.TestCase):
         finally:
             os.unlink(out)
 
+    def test_hypothesis_line_spacing_matches_body(self):
+        """假说行（H1：）只加粗，段间距须与正文一致，否则看起来多空一行。"""
+        sections = [
+            {'title': '一、理论', 'body': '', 'level': 1},
+            {'title': '', 'body': '正文段落。', 'level': 0},
+            {'title': '', 'body': 'H1：空气污染显著抑制城市创新。', 'level': 0},
+        ]
+        with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as f:
+            out = f.name
+        try:
+            render_from_dicts(sections, out)
+            d = Document(out)
+            hypo = [p for p in d.paragraphs if p.text.startswith('H1：')][0]
+            body = [p for p in d.paragraphs if p.text == '正文段落。'][0]
+            self.assertIsNotNone(hypo.paragraph_format.space_after)
+            self.assertEqual(hypo.paragraph_format.space_before,
+                             body.paragraph_format.space_before)
+            self.assertEqual(hypo.paragraph_format.space_after,
+                             body.paragraph_format.space_after)
+            self.assertTrue(hypo.runs[0].bold)
+        finally:
+            os.unlink(out)
+
     def test_missing_table_warns(self):
         import io
         sections = [

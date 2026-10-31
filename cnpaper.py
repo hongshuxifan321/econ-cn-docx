@@ -1663,7 +1663,9 @@ def render_from_dicts(sections, output="论文.docx", *, spec=None,
                 p = doc.add_paragraph()
                 p.paragraph_format.first_line_indent = Pt(body_indent)
                 p.paragraph_format.line_spacing = body_line_spacing
-                r = p.add_run(para_text)
+                p.paragraph_format.space_before = body_sp_before
+                p.paragraph_format.space_after = body_sp_after
+                r = p.add_run(_fix_quotes(para_text))
                 set_cn_font(r, f_body, Pt(body_size), bold=True)
             else:
                 _add_body_paragraph(doc, para_text,
