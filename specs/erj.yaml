@@ -1,68 +1,9 @@
-# 《经济研究》投稿体例（A 版：投稿用，非刊登版）
+# 《经济研究》投稿体例 —— 通用版式（base）的别名
 #
-# 依据：编辑部《稿件体例要求》带红字标注的样张（6 页）+ 公开刊登论文的实测。
-# 凡样张没写的（页边距、行距、线宽、加粗），标为「推断」，改之前先确认。
+# 2026-10-31 起，通用版式 specs/base.yaml 本身就是经研投稿体例，
+# 所以 spec="erj" 与不写 spec 完全等价；这个文件只为兼容旧调用保留。
 #
-# 注意：刊登版和这份不一样 —— 刊登正文 11.8pt、标题 21.6pt、一级标题 12.7pt，
-# 那是编辑部印刷排版的尺寸；投稿用这份。
-#
-# 只写与 base.yaml 不同的键；改 base 会继承过来。
+# 要改经研体例，改 specs/base.yaml（那一份带逐项出处 sources），不要改这里。
+# 要出另一本刊的稿，新建 yaml，首行写 extends: base，只列与经研不同的键。
 
 extends: base
-margin_left: 2.54
-title_size: 15
-title_font: 宋体
-subtitle_font: 宋体
-abstract_label: 内容摘要
-abstract_font: 仿宋
-abstract_indent: 21
-keyword_font: 仿宋
-heading1_size: 14
-heading1_font: 宋体
-heading1_bold: false
-heading2_size: 10.5
-heading2_font: 宋体
-heading2_bold: false
-heading3_size: 9
-heading3_bold: false
-body_size: 10.5
-body_space_before: 0
-body_space_after: 0
-body_line_spacing: 16pt
-body_indent: 21
-table_font: 仿宋
-table_header_font: 仿宋
-table_header_bold: false
-table_title_font: 仿宋
-table_title_bold: false
-table_note_size: 7.5
-note_size: 7.5
-note_italic: false
-ref_size: 7.5
-ref_line_spacing: 1.0
-ref_indent: 21
-page_number: true
-equation_number: true
-footnote_num_format: chicago
-sources:
-  margin_left: 推断
-  title_size: 官方样张
-  title_font: 官方样张
-  subtitle_font: 刊登版实测
-  abstract_label: 官方样张
-  abstract_font: 官方样张
-  keyword_font: 官方样张
-  heading1_size: 官方样张
-  heading1_bold: 推断
-  heading2_size: 官方样张
-  heading3_size: 官方样张
-  body_size: 官方样张
-  body_line_spacing: 推断
-  body_indent: 官方样张
-  table_font: 官方样张
-  table_title_font: 刊登版实测
-  table_note_size: 官方样张
-  ref_size: 官方样张
-  ref_indent: 官方样张
-  page_number: 刊登版实测
-  equation_number: 官方样张（公式右侧编号）

@@ -880,7 +880,7 @@ def render_from_dicts(sections, output="论文.docx", *, spec=None,
        Each section dict: {"title": str, "body": str, "level": int}
        Same format as paper_content.json, but passed as a Python list.
 
-       spec: 规格名或 yaml 路径（默认 "base"，见 specs/base.yaml）；
+       spec: 规格名或 yaml 路径（默认 "base" = 通用版式 = 《经济研究》投稿体例，见 specs/base.yaml）；
              显式传入的 kwargs 覆盖 spec 里的同名项。
        可用 kwargs：tables_dir, figures_dir, table_map, 以及 specs/base.yaml
        中的任意字段（margin_*, body_size, heading1_size, table_font …）。

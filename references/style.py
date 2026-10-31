@@ -3,18 +3,19 @@
 
 设计要点
 --------
-1. 一份通用版式（base.yaml）+ 若干差异规格（erj.yaml），用 ``extends`` 继承；
+1. 通用版式（base.yaml）= 《经济研究》投稿体例（A 版），也是默认出稿版式；
+   其他期刊 / 学校写差异规格（首行 ``extends: base``），只列不同的键；
 2. 用户自定义规格写在 ``~/.dsh/econ-cn-docx/specs/``，skill 升级不会冲掉；
-3. 每个值带来源（默认 / 预设 / 规格 / 调用参数），``describe()`` 打印生效值，
+3. 每个值带来源（默认 / 规格 / 调用参数），``describe()`` 打印生效值，
    避免「改了没生效」这种静默失败。
 
 用法::
 
     from references.style import Style, load_spec, resolve
 
-    st = Style.load(spec="erj")
+    st = Style.load(spec=None)      # 不写 spec 就是通用版式（经研投稿体例）
     st.describe()
-    render_from_dicts(sections, "论文.docx", spec="erj")
+    render_from_dicts(sections, "论文.docx")
 """
 
 import os
@@ -33,49 +34,50 @@ SKILL_SPEC_DIR = os.path.join(
 
 # ═══════════════════════════════════════════════════════════════
 # 参数全集（单一事实来源：pipeline 从这里取默认值）
+# 值 = 《经济研究》投稿体例（A 版），与 specs/base.yaml 一致，改一边必须改另一边
 # ═══════════════════════════════════════════════════════════════
 
 DEFAULTS = dict(
     # 目录与表格映射
     tables_dir="tables", figures_dir="figures", table_map=None,
     # 页面
-    margin_top=2.54, margin_bottom=2.54, margin_left=3.18, margin_right=2.54,
+    margin_top=2.54, margin_bottom=2.54, margin_left=2.54, margin_right=2.54,
     # 标题块
-    title_size=18, title_font="黑体", title_bold=True,
-    subtitle_size=14, subtitle_font="黑体", subtitle_bold=False,
+    title_size=15, title_font="宋体", title_bold=True,
+    subtitle_size=14, subtitle_font="宋体", subtitle_bold=False,
     author_size=12, author_font="宋体", author_bold=False,
     # 摘要 / 关键词
-    abstract_label="摘要", abstract_label_font="黑体", abstract_label_size=10.5,
-    abstract_font="楷体", abstract_size=10.5, abstract_indent=0,
+    abstract_label="内容摘要", abstract_label_font="黑体", abstract_label_size=10.5,
+    abstract_font="仿宋", abstract_size=10.5, abstract_indent=21,
     keyword_label="关键词", keyword_label_font="黑体", keyword_label_size=10.5,
-    keyword_font="楷体", keyword_size=10.5,
+    keyword_font="仿宋", keyword_size=10.5,
     # 正文
-    body_size=12, body_font="宋体", body_line_spacing=1.5, body_indent=24,
-    body_space_before=6, body_space_after=6,
+    body_size=10.5, body_font="宋体", body_line_spacing="16pt", body_indent=21,
+    body_space_before=0, body_space_after=0,
     # 各级标题
-    heading1_size=16, heading1_font="黑体", heading1_bold=True, heading1_align="center",
-    heading2_size=14, heading2_font="黑体", heading2_bold=True, heading2_align="left",
-    heading3_size=10.5, heading3_font="黑体", heading3_bold=True, heading3_align="center",
+    heading1_size=14, heading1_font="宋体", heading1_bold=False, heading1_align="center",
+    heading2_size=10.5, heading2_font="宋体", heading2_bold=False, heading2_align="left",
+    heading3_size=9, heading3_font="黑体", heading3_bold=False, heading3_align="center",
     # 表格
-    table_font_size=9, table_font="宋体", table_header_font="黑体", table_header_bold=True,
+    table_font_size=9, table_font="仿宋", table_header_font="仿宋", table_header_bold=False,
     table_rule_top=12, table_rule_mid=8, table_rule_bottom=12,
-    table_title_size=10.5, table_title_font="黑体", table_title_bold=True,
-    table_note_size=9, table_note_font="宋体",
+    table_title_size=10.5, table_title_font="仿宋", table_title_bold=False,
+    table_note_size=7.5, table_note_font="宋体",
     # 表注 / 脚注样式（NOTE: 行）
-    note_size=9, note_font="宋体", note_italic=True,
+    note_size=7.5, note_font="宋体", note_italic=False,
     # 参考文献
-    ref_size=10, ref_font="宋体", ref_line_spacing=1.25, ref_indent=0,
+    ref_size=7.5, ref_font="宋体", ref_line_spacing=1.0, ref_indent=21,
     # 页码
-    page_number=False, page_number_size=9, page_number_font="宋体",
+    page_number=True, page_number_size=9, page_number_font="宋体",
     # 自动编号（一、/（一）/图1/表1/公式(1)）
     auto_number=True,
-    equation_number=False,
+    equation_number=True,
     # 参考文献标题
     ref_heading_font="黑体", ref_heading_size=10.5, ref_heading_bold=True,
     ref_heading_align="left",
     # 脚注
     footnote_font="宋体", footnote_size=7.5, footnote_per_page=True,
-    footnote_num_format="decimal",   # decimal / decimalEnclosedCircle / chicago
+    footnote_num_format="chicago",   # decimal / decimalEnclosedCircle / chicago
 )
 
 
@@ -195,7 +197,7 @@ class Style:
 def resolve(spec=None, overrides=None):
     """合并顺序：DEFAULTS → spec → 调用参数；同时记录来源。
 
-    不指定 spec 就用 base.yaml。
+    不指定 spec 就用 base.yaml（= 通用版式 = 《经济研究》投稿体例）。
     """
     params = dict(DEFAULTS)
     sources = {k: "默认" for k in DEFAULTS}

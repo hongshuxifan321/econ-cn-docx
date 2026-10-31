@@ -36,27 +36,27 @@ p.h1("参考文献")
 p.ref("Dingel, J. I., and B. Neiman, 2020, “How Many Jobs Can Be Done at Home?”, "
       "{i:Journal of Public Economics}, 189, 104235.")
 
-p.render("论文.docx", spec="erj", tables_dir="tables", figures_dir="figures")
+p.render("论文.docx", tables_dir="tables", figures_dir="figures")   # 默认即经研投稿体例
 ```
 
 ## 版式规格（spec）
 
-只有一套通用版式；具体期刊/学校另写一个 yaml，`extends: base` 只列差异。
+**只有一套通用版式，就是《经济研究》投稿体例（A 版）。** 其他期刊 / 学校另写一个 yaml，`extends: base` 只列差异。
 
 ```
-specs/base.yaml                    # 通用版式：中性默认值，不代表任何期刊
-specs/erj.yaml                     # 例：《经济研究》投稿体例
+specs/base.yaml                    # 通用版式 = 《经济研究》投稿体例（默认出稿版式）
+specs/erj.yaml                     # 同 base 的别名，为兼容旧调用保留
 ~/.dsh/econ-cn-docx/specs/*.yaml   # 你自己的规格（skill 升级不会丢）
 ```
 
 ```python
-p.render("论文.docx")                            # 不指定 → specs/base.yaml
-p.render("论文.docx", spec="erj")                # 按规格名
-p.render("论文.docx", spec="erj", body_size=11)  # 规格 + 单点覆盖
-p.render("论文.docx", spec="erj", report=True)   # 打印生效值 + 每项来源
+p.render("论文.docx")                            # 不指定 → 通用版式（经研体例）
+p.render("论文.docx", spec="erj")                # 等价，别名
+p.render("论文.docx", body_size=11)              # 通用版式 + 单点覆盖
+p.render("论文.docx", report=True)               # 打印生效值 + 每项来源
 ```
 
-- 字段清单与含义见 [`specs/base.yaml`](specs/base.yaml)，带注释，可直接当填空模板
+- 字段清单、含义与**逐项出处**见 [`specs/base.yaml`](specs/base.yaml)：`sources` 标明每项是「官方样张」「刊登版实测」还是「推断」
 - 行距写数字 = 倍数；写 `"16pt"` = 固定值
 - 未支持的字段或拼错的参数会**直接报错**，不会静默忽略
 
@@ -66,8 +66,8 @@ p.render("论文.docx", spec="erj", report=True)   # 打印生效值 + 每项来
 from references.style import Style, list_specs, save
 
 list_specs()                                                  # 可用规格
-Style.load(spec="erj").describe()                             # 逐项看值与来源
-save("my-erj", Style.load(spec="erj", overrides={"body_size": 9}))   # 存为用户规格
+Style.load().describe()                                       # 逐项看生效值 + 来源
+save("my-erj", Style.load(overrides={"body_size": 9}))        # 存为用户规格（只写差异）
 ```
 
 ## API
@@ -117,8 +117,7 @@ save("my-erj", Style.load(spec="erj", overrides={"body_size": 9}))   # 存为用
 ### 渲染
 
 ```python
-p.render("论文.docx",
-         spec="erj",              # 版式规格
+p.render("论文.docx",            # 不写 spec 即通用版式（经研投稿体例）
          tables_dir="tables", figures_dir="figures",
          table_map={"key": "file.rtf"},
          report=True)             # 打印生效参数 + 来源
@@ -182,7 +181,7 @@ preview("论文.docx")        # → preview/p1.png, p2.png …
 
 ```python
 from cn_docx import render
-render("paper_content.json", output="论文.docx", spec="erj")
+render("paper_content.json", output="论文.docx")   # 默认即通用版式
 ```
 
 `TABLE:key` / `IMAGE:file.png` / `EQUATION:...` / `REF:...` / `NOTE:...` 前缀仍然有效。
@@ -190,7 +189,7 @@ render("paper_content.json", output="论文.docx", spec="erj")
 ## 字体与默认值
 
 各元素字体由 spec 决定（`body_font`、`heading1_font`、`abstract_font`、`table_font` …），
-西文一律 Times New Roman。默认值见 [`specs/base.yaml`](specs/base.yaml)。
+西文一律 Times New Roman。默认值 = 《经济研究》投稿体例，见 [`specs/base.yaml`](specs/base.yaml)。
 
 ## 局限
 

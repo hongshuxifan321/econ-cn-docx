@@ -350,10 +350,13 @@ class TestStyleLayer(unittest.TestCase):
         p.render(out, **kw)
         return out
 
-    def test_default_spec_is_base(self):
+    def test_default_spec_is_erj(self):
+        """不指定 spec 时就是通用版式（经研投稿体例）。"""
         from references.style import resolve
         st = resolve()
-        self.assertEqual(st.get('body_size'), 12)
+        self.assertAlmostEqual(st.get('body_size'), 10.5)
+        self.assertEqual(st.get('abstract_font'), '仿宋')
+        self.assertEqual(st.get('footnote_num_format'), 'chicago')
 
     def test_unknown_override_raises(self):
         from references.style import resolve
