@@ -117,7 +117,7 @@ ref_heading_align: left
 footnote_font: 宋体
 footnote_size: 7.5        # 六号
 footnote_per_page: true
-footnote_num_format: chicago   # *†‡；decimal 1,2,3 / decimalEnclosedCircle ①②③
+footnote_num_format: decimalEnclosedCircle   # ①②③（经研正文注体例）；可选 decimal 1,2,3 / chicago *†‡。作者与基金信息用星号注，需 custom mark，暂未支持，故不取 chicago
 
 # ── 逐项出处 ──
 sources:
